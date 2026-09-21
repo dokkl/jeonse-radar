@@ -63,6 +63,15 @@ class MolitResponseParserTest {
     }
 
     @Test
+    void 알수없는코드와_null_blank는_ERROR로_판정된다() {
+        // ERROR는 배치가 abort 대신 retry하도록 만드는 분류다. OK나 QUOTA_EXCEEDED로
+        // 잘못 떨어지면 이 테스트가 없는 한 아무도 잡지 못한다.
+        assertThat(ResultCode.from("99")).isEqualTo(ResultCode.ERROR);
+        assertThat(ResultCode.from(null)).isEqualTo(ResultCode.ERROR);
+        assertThat(ResultCode.from("   ")).isEqualTo(ResultCode.ERROR);
+    }
+
+    @Test
     void 깨진XML은_ParseException을_던진다() throws IOException {
         String xml = fixture("malformed.xml");
 
