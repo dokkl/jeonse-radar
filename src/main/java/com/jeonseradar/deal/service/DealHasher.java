@@ -17,7 +17,14 @@ import java.util.HexFormat;
  */
 public final class DealHasher {
 
-    private static final String SEP = "|";
+    /**
+     * 필드 구분자로 ASCII Unit Separator(0x1F)를 쓴다.
+     * "|"는 지번·동명 등 실제 데이터에 등장할 수 있어 구분자 주입으로 서로 다른 두 거래가
+     * 같은 해시를 낼 수 있었다(예: jibun="12|34" vs jibun="12", legalDong="34|...").
+     * 0x1F는 제어문자라 국토부 API가 실어 나르는 텍스트 필드(동명, 지번 등)에 나타나지 않으므로
+     * 이 위험이 구조적으로 사라진다.
+     */
+    private static final String SEP = "";
 
     private DealHasher() {
     }
