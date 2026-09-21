@@ -23,3 +23,7 @@ molit:
   rows-per-page: 1000
   delay-ms: 120
   max-retries: 3
+  incremental-months: 3
+  backfill:
+    rent-months: 36
+    trade-months: 24
