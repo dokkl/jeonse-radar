@@ -6,3 +6,7 @@ build/
 .idea/
 *.iml
 .DS_Store
+
+# 로컬 Docker/Testcontainers 호환성 오버라이드 (머신별로 다름 - 커밋 금지)
+# 필요하면 docker-java.properties.example을 참고해 이 이름으로 복사해서 쓴다.
+src/test/resources/docker-java.properties
