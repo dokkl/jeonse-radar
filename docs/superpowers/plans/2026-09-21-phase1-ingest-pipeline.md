@@ -25,9 +25,26 @@
 - **네트워크를 타는 테스트를 만들지 않는다.** 실제 응답을 픽스처로 저장해 사용한다 (스펙 §5).
 - 커밋 메시지는 한국어 한 줄 요약 + 필요 시 본문. Conventional Commits 접두사(`feat:`, `test:`, `chore:`, `docs:`) 사용.
 
-## API 필드명 확인 원칙
+## API 실측 결과 (2026-09-21, 서비스키로 실제 호출하여 확인)
 
-국토교통부 실거래가 API는 2023년 개편으로 필드명이 바뀐 이력이 있다. **이 계획에 적힌 필드명은 확정이 아니라 검증 대상이다.** Task 2에서 실제 응답을 픽스처로 캡처한 뒤, Task 3에서 `MolitFields` 상수와 대조해 불일치를 바로잡는다. 상수 한 곳만 고치면 되도록 매퍼가 필드명을 직접 문자열로 들고 있지 않게 설계한다.
+**이 계획의 필드명과 형식은 추측이 아니라 실측값이다.** 아래는 반드시 그대로 따른다.
+
+- **엔드포인트 유효 확인:** `RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev`,
+  `RTMSDataSvcAptRent/getRTMSDataSvcAptRent` 둘 다 정상 응답.
+- **정상 응답의 `resultCode`는 `000`** (2자리가 아니라 3자리). 앞자리 0 제거 정규화가 필수다.
+- **인증/인프라 오류는 HTTP 403 + `<OpenAPI_ServiceResponse><cmmMsgHeader><returnReasonCode>`** 구조로 온다.
+  HTTP 상태가 200이 아니라는 점이 핵심이다 — Task 8 참조.
+- **`aptSeq`(단지 일련번호, 예 `11110-2519`)가 두 API 모두에 채움률 100%로 존재한다.**
+  단지 식별 키는 지번이 아니라 `(sggCd, aptSeq)`다 (스펙 §1.4 개정).
+- **`contractTerm` 형식은 `YY.MM~YY.MM`** (예: `25.05~27.05`). `YYYYMM~YYYYMM`은 **0%**, 존재하지 않는다.
+- **`useRRRight`는 `"사용"` 또는 공백 두 값뿐이다.** `"미사용"`은 오지 않는다.
+- **`rgstDate` 형식은 `yy.MM.dd`** (예: `26.06.30`).
+- **`cdealType`/`cdealDay`는 값이 없을 때 빈 문자열이 아니라 공백 한 칸(`" "`)** 으로 온다. 반드시 trim한다.
+- **`excluUseAr`는 소수점 4자리까지 온다** (예: `59.8547`). 저장 시 2자리로 반올림한다.
+- 실제 응답 픽스처 3종이 이미 캡처되어 있다 (Task 2에서 사용):
+  `.superpowers/sdd/2026-09-21-phase1-ingest-pipeline/fixtures/{trade-ok,rent-ok,invalid-key}.xml`
+
+서비스키는 `.env.local`(gitignore됨)의 `MOLIT_SERVICE_KEY`에 있다. **절대 커밋하지 않는다.**
 
 ---
 
@@ -86,6 +103,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:mysql'
+    testImplementation 'org.testcontainers:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -255,54 +273,34 @@ git commit -m "chore: Spring Boot 프로젝트 스캐폴딩 및 Testcontainers �
   - `record ParsedResponse(ResultCode code, String rawCode, int totalCount, List<Map<String,String>> items)`
   - `MolitResponseParser.parse(String xml) -> ParsedResponse` (파싱 불가 시 `ParseException` 던짐)
 
-- [ ] **Step 1: 실제 응답을 픽스처로 캡처**
+- [ ] **Step 1: 캡처된 실제 응답 픽스처를 테스트 리소스로 복사**
 
-공공데이터포털에서 두 API를 신청하고 서비스키를 발급받는다 (자동승인, 1~2시간 내 활성화).
-
-- 아파트 매매: https://www.data.go.kr/data/15126469/openapi.do
-- 아파트 전월세: https://www.data.go.kr/data/15126474/openapi.do
-
-키를 환경변수에 넣고 실제 호출해 응답을 저장한다.
+실제 API 호출로 이미 캡처해 둔 응답 3종이 있다. 다시 호출하지 말고 복사한다.
 
 ```bash
-export MOLIT_SERVICE_KEY='발급받은_디코딩된_키'
 mkdir -p src/test/resources/fixtures/molit
-
-# 정상 응답 (서울 종로구 2026년 3월)
-curl -sG 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev' \
-  --data-urlencode "serviceKey=${MOLIT_SERVICE_KEY}" \
-  --data-urlencode 'LAWD_CD=11110' \
-  --data-urlencode 'DEAL_YMD=202603' \
-  --data-urlencode 'numOfRows=5' \
-  -o src/test/resources/fixtures/molit/trade-ok.xml
-
-# 전월세 정상 응답
-curl -sG 'https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent' \
-  --data-urlencode "serviceKey=${MOLIT_SERVICE_KEY}" \
-  --data-urlencode 'LAWD_CD=11110' \
-  --data-urlencode 'DEAL_YMD=202603' \
-  --data-urlencode 'numOfRows=5' \
-  -o src/test/resources/fixtures/molit/rent-ok.xml
-
-# 잘못된 키 → 인증 오류 응답
-curl -sG 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev' \
-  --data-urlencode 'serviceKey=invalid' \
-  --data-urlencode 'LAWD_CD=11110' \
-  --data-urlencode 'DEAL_YMD=202603' \
-  -o src/test/resources/fixtures/molit/invalid-key.xml
-
-cat src/test/resources/fixtures/molit/trade-ok.xml
+cp .superpowers/sdd/2026-09-21-phase1-ingest-pipeline/fixtures/trade-ok.xml \
+   .superpowers/sdd/2026-09-21-phase1-ingest-pipeline/fixtures/rent-ok.xml \
+   .superpowers/sdd/2026-09-21-phase1-ingest-pipeline/fixtures/invalid-key.xml \
+   src/test/resources/fixtures/molit/
+ls -la src/test/resources/fixtures/molit/
 ```
 
-**엔드포인트 경로가 위와 다르면** 데이터포털 상세 페이지의 "요청주소"를 그대로 사용하고, 이 계획서의 경로도 함께 고친다.
+세 파일에 서비스키는 들어있지 않다(확인 완료). 커밋해도 안전하다.
 
-- [ ] **Step 2: 캡처한 응답에서 resultCode 위치를 확인**
+- [ ] **Step 2: 픽스처의 실제 구조 확인**
 
 ```bash
-grep -oE '<(resultCode|returnReasonCode|resultMsg|returnAuthMsg)>[^<]*<' src/test/resources/fixtures/molit/*.xml
+grep -oE '<(resultCode|returnReasonCode|errMsg|totalCount)>[^<]*<' src/test/resources/fixtures/molit/*.xml
 ```
 
-정상 응답은 `<header><resultCode>` 아래, 인증/인프라 오류는 `<cmmMsgHeader><returnReasonCode>` 아래에 온다. **두 위치를 모두 읽어야 한다.** 코드 자리수도 `00`/`000`처럼 섞여 나오므로 **앞자리 0을 제거해 정규화**한다.
+확인되는 사실:
+
+- `trade-ok.xml` / `rent-ok.xml` → `<header><resultCode>000</resultCode>`, `<totalCount>` 양수, `<item>` 5개
+- `invalid-key.xml` → `<OpenAPI_ServiceResponse><cmmMsgHeader><returnReasonCode>30</returnReasonCode>`
+
+**`resultCode`가 `000`(3자리)이고 인증 오류는 `returnReasonCode`(다른 태그, 다른 루트 엘리먼트)에 온다.**
+파서는 두 위치를 모두 읽고, 앞자리 0을 제거해 정규화해야 한다.
 
 - [ ] **Step 3: NODATA·쿼터초과 픽스처를 손으로 작성**
 
@@ -326,15 +324,17 @@ grep -oE '<(resultCode|returnReasonCode|resultMsg|returnAuthMsg)>[^<]*<' src/tes
 </response>
 ```
 
-`src/test/resources/fixtures/molit/quota-exceeded.xml`:
+`src/test/resources/fixtures/molit/quota-exceeded.xml` — 실제 캡처한 `invalid-key.xml`과
+동일한 구조에 코드만 22로 바꾼 것이다 (구조는 실측 확인됨):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <OpenAPI_ServiceResponse>
-  <cmmMsgHeader>
-    <returnAuthMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</returnAuthMsg>
-    <returnReasonCode>22</returnReasonCode>
-  </cmmMsgHeader>
+<cmmMsgHeader>
+  <errMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</errMsg>
+  <returnAuthMsg>서비스 요청제한횟수 초과에러</returnAuthMsg>
+  <returnReasonCode>22</returnReasonCode>
+</cmmMsgHeader>
 </OpenAPI_ServiceResponse>
 ```
 
@@ -379,7 +379,7 @@ class MolitResponseParserTest {
         assertThat(result.code()).isEqualTo(ResultCode.OK);
         assertThat(result.items()).isNotEmpty();
         assertThat(result.totalCount()).isPositive();
-        assertThat(result.items().getFirst()).containsKey("aptNm");
+        assertThat(result.items().getFirst()).containsKeys("aptNm", "aptSeq", "sggCd");
     }
 
     @Test
@@ -595,7 +595,8 @@ public class MolitResponseParser {
 Run: `./gradlew test --tests '*MolitResponseParserTest'`
 Expected: PASS (6개 테스트)
 
-실패하면 Step 2에서 확인한 실제 태그 이름과 대조한다. 픽스처가 진실이고 구현이 따라가야 한다.
+실패하면 Step 2에서 확인한 실제 태그 이름과 대조한다. **픽스처는 실제 API 응답이므로 진실이고,
+구현이 픽스처에 맞춰야 한다.** 픽스처를 고쳐서 테스트를 통과시키는 것은 금지한다.
 
 - [ ] **Step 10: 커밋**
 
@@ -624,20 +625,21 @@ git commit -m "feat: 공공데이터 응답 파서 및 resultCode 판정 추가"
   - `FieldConverter.toDealDate(Map<String,String>) -> LocalDate`
   - `FieldConverter.toRegisteredDate(String) -> LocalDate` (없으면 null)
 
-- [ ] **Step 1: 실제 응답의 필드명을 확인**
+- [ ] **Step 1: 실측 필드명 확인 (대조만, 수정 불필요)**
 
 ```bash
 python3 -c "
-import re,sys
+import re
 for f in ['trade-ok.xml','rent-ok.xml']:
     xml=open('src/test/resources/fixtures/molit/'+f,encoding='utf-8').read()
     item=re.search(r'<item>(.*?)</item>',xml,re.S)
-    print('==',f)
-    print(sorted(set(re.findall(r'<(\w+)>',item.group(1)))) if item else 'no item')
+    print('==',f); print(sorted(set(re.findall(r'<(\w+)>',item.group(1)))))
 "
 ```
 
-출력된 필드명을 Step 2의 `MolitFields` 상수와 대조한다. **다르면 상수 쪽을 실제에 맞춰 고친다.** 이후 태스크는 이 상수만 참조하므로 수정 지점은 이 파일 하나다.
+**아래 Step 2의 상수는 이미 실제 응답과 대조를 마친 값이다.** 출력과 다른 것이 있으면
+그때만 상수를 고친다. 매매/전월세 간 대소문자가 다른 필드가 있으나(`roadNm` vs `roadnm`)
+이 서비스가 쓰는 필드는 양쪽 표기가 동일함을 확인했다.
 
 - [ ] **Step 2: 필드명 상수 작성**
 
@@ -657,6 +659,8 @@ public final class MolitFields {
     }
 
     // 공통
+    /** 단지 일련번호 (예: 11110-2519). 채움률 100%. 단지 식별의 기준 키다. */
+    public static final String APT_SEQ = "aptSeq";
     public static final String SGG_CD = "sggCd";
     public static final String UMD_NM = "umdNm";
     public static final String JIBUN = "jibun";
@@ -724,6 +728,20 @@ class FieldConverterTest {
     void 전용면적은_소수점_둘째자리까지_보존한다() {
         assertThat(FieldConverter.toArea("84.97")).isEqualByComparingTo(new BigDecimal("84.97"));
         assertThat(FieldConverter.toArea(" 59.9 ")).isEqualByComparingTo(new BigDecimal("59.90"));
+    }
+
+    @Test
+    void 실제응답의_소수점_넷째자리_면적을_둘째자리로_반올림한다() {
+        // 실측: excluUseAr = "59.8547" 처럼 4자리로 온다
+        assertThat(FieldConverter.toArea("59.8547")).isEqualByComparingTo(new BigDecimal("59.85"));
+        assertThat(FieldConverter.toArea("79.87")).isEqualByComparingTo(new BigDecimal("79.87"));
+    }
+
+    @Test
+    void 공백_한칸으로_오는_값은_비어있는_것으로_다룬다() {
+        // 실측: cdealType, cdealDay, preDeposit 등이 "" 가 아니라 " " 로 온다
+        assertThat(FieldConverter.toWon(" ")).isZero();
+        assertThat(FieldConverter.toRegisteredDate(" ")).isNull();
     }
 
     @Test
@@ -897,9 +915,9 @@ public final class FieldConverter {
 - [ ] **Step 6: 테스트 통과 확인**
 
 Run: `./gradlew test --tests '*FieldConverterTest'`
-Expected: PASS (11개 테스트)
+Expected: PASS (13개 테스트)
 
-`toRegisteredDate` 형식이 실제와 다르면(예: `20260520`) 실제 픽스처 값에 맞춰 포맷과 테스트를 함께 고친다.
+`toRegisteredDate`의 `yy.MM.dd` 형식은 실측 확인됐다 (`rgstDate = "26.06.30"`). 그대로 간다.
 
 - [ ] **Step 7: 커밋**
 
@@ -1086,8 +1104,8 @@ import jakarta.persistence.*;
 @Entity
 @Table(name = "complex",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_complex_location",
-                columnNames = {"regionCode", "legalDong", "jibun"}))
+                name = "uk_complex_apt_seq",
+                columnNames = {"region_code", "apt_seq"}))
 public class Complex {
 
     @Id
@@ -1097,10 +1115,20 @@ public class Complex {
     @Column(length = 5, nullable = false)
     private String regionCode;
 
-    @Column(length = 64, nullable = false)
+    /**
+     * 단지 일련번호 (예: 11110-2519). 실측 채움률 100%.
+     * 지번은 서로 다른 단지 여럿을 한 값으로 합쳐버리므로(실측 43건) 식별 키로 쓸 수 없다.
+     * 한 aptSeq가 여러 지번에 걸치는 사례와 한 aptSeq에 이름이 둘 이상인 사례는 실측 0건이다.
+     */
+    @Column(length = 32, nullable = false)
+    private String aptSeq;
+
+    /** 표시·검색용 속성. 식별 키가 아니다. */
+    @Column(length = 64)
     private String legalDong;
 
-    @Column(length = 32, nullable = false)
+    /** 표시·검색용 속성. 식별 키가 아니다. */
+    @Column(length = 32)
     private String jibun;
 
     @Column(length = 128, nullable = false)
@@ -1114,9 +1142,10 @@ public class Complex {
     protected Complex() {
     }
 
-    public Complex(String regionCode, String legalDong, String jibun,
+    public Complex(String regionCode, String aptSeq, String legalDong, String jibun,
                    String displayName, Integer buildYear, String slug) {
         this.regionCode = regionCode;
+        this.aptSeq = aptSeq;
         this.legalDong = legalDong;
         this.jibun = jibun;
         this.displayName = displayName;
@@ -1130,6 +1159,10 @@ public class Complex {
 
     public String getRegionCode() {
         return regionCode;
+    }
+
+    public String getAptSeq() {
+        return aptSeq;
     }
 
     public String getLegalDong() {
@@ -1146,10 +1179,6 @@ public class Complex {
 
     public String getSlug() {
         return slug;
-    }
-
-    public void updateDisplayName(String displayName) {
-        this.displayName = displayName;
     }
 }
 ```
@@ -1169,10 +1198,10 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "trade_deal",
-        uniqueConstraints = @UniqueConstraint(name = "uk_trade_hash", columnNames = "dealHash"),
+        uniqueConstraints = @UniqueConstraint(name = "uk_trade_hash", columnNames = "deal_hash"),
         indexes = {
-                @Index(name = "idx_trade_complex_bucket", columnList = "complexId,areaBucket,dealDate"),
-                @Index(name = "idx_trade_region_date", columnList = "regionCode,dealDate")
+                @Index(name = "idx_trade_complex_bucket", columnList = "complex_id,area_bucket,deal_date"),
+                @Index(name = "idx_trade_region_date", columnList = "region_code,deal_date")
         })
 public class TradeDeal {
 
@@ -1184,6 +1213,10 @@ public class TradeDeal {
     private String dealHash;
 
     private Long complexId;
+
+    /** 단지 일련번호. 실측 채움률 100% */
+    @Column(length = 32)
+    private String aptSeq;
 
     @Column(length = 5, nullable = false)
     private String regionCode;
@@ -1244,7 +1277,52 @@ public class TradeDeal {
         this.updatedAt = LocalDateTime.now();
     }
 
-    // getter/setter는 IDE로 생성한다. 필드명은 위와 정확히 일치해야 한다.
+    public static TradeDeal of(String dealHash, Long complexId, String aptSeq, String regionCode,
+                               String legalDong, String jibun, String aptName,
+                               BigDecimal area, Integer areaBucket, Integer floor,
+                               LocalDate dealDate, Long dealAmount, Integer buildYear,
+                               String dealType, String agentRegion,
+                               LocalDate registeredDate, String cancelYn, LocalDate cancelDate) {
+        TradeDeal deal = new TradeDeal();
+        deal.dealHash = dealHash;
+        deal.complexId = complexId;
+        deal.aptSeq = aptSeq;
+        deal.regionCode = regionCode;
+        deal.legalDong = legalDong;
+        deal.jibun = jibun;
+        deal.aptName = aptName;
+        deal.area = area;
+        deal.areaBucket = areaBucket;
+        deal.floor = floor;
+        deal.dealDate = dealDate;
+        deal.dealAmount = dealAmount;
+        deal.buildYear = buildYear;
+        deal.dealType = dealType;
+        deal.agentRegion = agentRegion;
+        deal.registeredDate = registeredDate;
+        deal.cancelYn = cancelYn;
+        deal.cancelDate = cancelDate;
+        return deal;
+    }
+
+    public String getDealHash() { return dealHash; }
+    public Long getComplexId() { return complexId; }
+    public String getAptSeq() { return aptSeq; }
+    public String getRegionCode() { return regionCode; }
+    public String getLegalDong() { return legalDong; }
+    public String getJibun() { return jibun; }
+    public String getAptName() { return aptName; }
+    public BigDecimal getArea() { return area; }
+    public Integer getAreaBucket() { return areaBucket; }
+    public Integer getFloor() { return floor; }
+    public LocalDate getDealDate() { return dealDate; }
+    public Long getDealAmount() { return dealAmount; }
+    public Integer getBuildYear() { return buildYear; }
+    public String getDealType() { return dealType; }
+    public String getAgentRegion() { return agentRegion; }
+    public LocalDate getRegisteredDate() { return registeredDate; }
+    public String getCancelYn() { return cancelYn; }
+    public LocalDate getCancelDate() { return cancelDate; }
 }
 ```
 
@@ -1263,10 +1341,10 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "rent_deal",
-        uniqueConstraints = @UniqueConstraint(name = "uk_rent_hash", columnNames = "dealHash"),
+        uniqueConstraints = @UniqueConstraint(name = "uk_rent_hash", columnNames = "deal_hash"),
         indexes = {
-                @Index(name = "idx_rent_complex_bucket", columnList = "complexId,areaBucket,dealDate"),
-                @Index(name = "idx_rent_maturity", columnList = "complexId,areaBucket,termEndYm")
+                @Index(name = "idx_rent_complex_bucket", columnList = "complex_id,area_bucket,deal_date"),
+                @Index(name = "idx_rent_maturity", columnList = "complex_id,area_bucket,term_end_ym")
         })
 public class RentDeal {
 
@@ -1278,6 +1356,10 @@ public class RentDeal {
     private String dealHash;
 
     private Long complexId;
+
+    /** 단지 일련번호. 실측 채움률 100% */
+    @Column(length = 32)
+    private String aptSeq;
 
     @Column(length = 5, nullable = false)
     private String regionCode;
@@ -1337,7 +1419,7 @@ public class RentDeal {
     protected RentDeal() {
     }
 
-    public static RentDeal of(String dealHash, Long complexId, String regionCode,
+    public static RentDeal of(String dealHash, Long complexId, String aptSeq, String regionCode,
                               String legalDong, String jibun, String aptName,
                               BigDecimal area, Integer areaBucket, Integer floor,
                               LocalDate dealDate, Long deposit, Long monthlyRent,
@@ -1347,6 +1429,7 @@ public class RentDeal {
         RentDeal deal = new RentDeal();
         deal.dealHash = dealHash;
         deal.complexId = complexId;
+        deal.aptSeq = aptSeq;
         deal.regionCode = regionCode;
         deal.legalDong = legalDong;
         deal.jibun = jibun;
@@ -1382,6 +1465,7 @@ public class RentDeal {
 
     public String getDealHash() { return dealHash; }
     public Long getComplexId() { return complexId; }
+    public String getAptSeq() { return aptSeq; }
     public String getRegionCode() { return regionCode; }
     public String getLegalDong() { return legalDong; }
     public String getJibun() { return jibun; }
@@ -1427,7 +1511,18 @@ git commit -m "feat: 거래/단지 엔티티 및 불변필드 기반 deal_hash �
 **Interfaces:**
 - Consumes: 없음 (순수 함수)
 - Produces: `ContractTermParser.parse(String raw, LocalDate dealDate) -> ContractTerm`
-  - `record ContractTerm(String startYm, String endYm, boolean estimated)`
+  - `record ContractTerm(String startYm, String endYm, boolean estimated)` — `startYm`/`endYm`은 `yyyyMM` 6자리
+
+**실측 형식 (2026-09-21, 18,287건).** 이 표가 이 태스크의 요구사항이다.
+
+| 입력 형식 | 실측 비율 | 예 | 처리 |
+|---|---|---|---|
+| `YY.MM~YY.MM` | 73.6% | `25.05~27.05` | 종료월을 만기월로 |
+| 공백 / 공백 한 칸 | 26.0% | `" "` | 계약일 + 24개월 추정 |
+| `~YY.MM` (시작 없음) | 0.4% | `~26.03` | **종료월은 유효 — 그대로 사용** |
+| `YYYYMM~YYYYMM` | **0%** | — | 존재하지 않는다 |
+
+2자리 연도는 `2000 + yy`로 해석한다 (실측 분포 21~27).
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1447,25 +1542,44 @@ class ContractTermParserTest {
     private static final LocalDate DEAL_DATE = LocalDate.of(2026, 3, 14);
 
     @Test
-    void 정상형식은_시작월과_종료월을_그대로_읽는다() {
-        var term = ContractTermParser.parse("202403~202603", DEAL_DATE);
+    void 실측형식_YY점MM을_파싱한다() {
+        var term = ContractTermParser.parse("25.05~27.05", DEAL_DATE);
 
-        assertThat(term.startYm()).isEqualTo("202403");
-        assertThat(term.endYm()).isEqualTo("202603");
+        assertThat(term.startYm()).isEqualTo("202505");
+        assertThat(term.endYm()).isEqualTo("202705");
         assertThat(term.estimated()).isFalse();
+    }
+
+    @Test
+    void 두자리연도는_2000년대로_해석한다() {
+        var term = ContractTermParser.parse("21.11~23.11", DEAL_DATE);
+
+        assertThat(term.startYm()).isEqualTo("202111");
+        assertThat(term.endYm()).isEqualTo("202311");
     }
 
     @Test
     void 공백이_섞여도_파싱한다() {
-        var term = ContractTermParser.parse(" 202403 ~ 202603 ", DEAL_DATE);
+        var term = ContractTermParser.parse("  25.05 ~ 27.05  ", DEAL_DATE);
 
-        assertThat(term.endYm()).isEqualTo("202603");
+        assertThat(term.endYm()).isEqualTo("202705");
         assertThat(term.estimated()).isFalse();
     }
 
     @Test
-    void 결측이면_계약일_더하기_24개월로_추정한다() {
-        var term = ContractTermParser.parse("", DEAL_DATE);
+    void 시작월이_없고_종료월만_있으면_종료월을_그대로_쓴다() {
+        // 실측 0.4%: "~26.03"
+        var term = ContractTermParser.parse("~26.03", DEAL_DATE);
+
+        assertThat(term.endYm()).isEqualTo("202603");
+        assertThat(term.startYm()).isNull();
+        assertThat(term.estimated()).isFalse();
+    }
+
+    @Test
+    void 공백_한칸이면_추정한다() {
+        // 실측: 결측은 "" 이 아니라 " " 로 온다
+        var term = ContractTermParser.parse(" ", DEAL_DATE);
 
         assertThat(term.startYm()).isEqualTo("202603");
         assertThat(term.endYm()).isEqualTo("202803");
@@ -1489,8 +1603,8 @@ class ContractTermParserTest {
     }
 
     @Test
-    void 종료월이_존재하지_않는_월이면_추정으로_떨어진다() {
-        var term = ContractTermParser.parse("202403~202613", DEAL_DATE);
+    void 존재하지_않는_월이면_추정으로_떨어진다() {
+        var term = ContractTermParser.parse("25.05~27.13", DEAL_DATE);
 
         assertThat(term.estimated()).isTrue();
         assertThat(term.endYm()).isEqualTo("202803");
@@ -1498,9 +1612,18 @@ class ContractTermParserTest {
 
     @Test
     void 종료가_시작보다_이르면_추정으로_떨어진다() {
-        var term = ContractTermParser.parse("202603~202403", DEAL_DATE);
+        var term = ContractTermParser.parse("27.05~25.05", DEAL_DATE);
 
         assertThat(term.estimated()).isTrue();
+    }
+
+    @Test
+    void 구형식_YYYYMM은_실제로_오지_않지만_와도_추정으로_떨어지지_않는다() {
+        // 방어적: 과거 문서에 나오는 형식. 실측 0%지만 오면 읽어준다.
+        var term = ContractTermParser.parse("202505~202705", DEAL_DATE);
+
+        assertThat(term.endYm()).isEqualTo("202705");
+        assertThat(term.estimated()).isFalse();
     }
 }
 ```
@@ -1525,17 +1648,30 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 전월세 API의 계약기간 필드("202403~202603")를 만기월로 변환한다.
+ * 전월세 API의 계약기간 필드를 만기월로 변환한다.
  *
- * 결측·형식오류 시 주택임대차보호법 기본 2년을 적용해 추정하되,
- * 반드시 estimated=true를 남긴다. 추정치를 확정치처럼 노출하면
- * 한 번 틀렸을 때 서비스 신뢰가 사라진다 (스펙 §3.2).
+ * 실측(2026-09-21, 18,287건) 형식 분포:
+ *   YY.MM~YY.MM   73.6%  (예: "25.05~27.05")
+ *   공백           26.0%  (공백 한 칸으로 온다)
+ *   ~YY.MM          0.4%  (시작월 없이 종료월만 — 종료월은 유효하다)
+ *   YYYYMM~YYYYMM   0.0%  (존재하지 않지만 방어적으로 읽는다)
+ *
+ * 결측·형식오류 시 주택임대차보호법 기본 2년으로 추정하되 반드시 estimated=true를 남긴다.
+ * 추정치를 확정치처럼 노출하면 한 번 틀렸을 때 서비스 신뢰가 사라진다 (스펙 §3.2).
  */
 public final class ContractTermParser {
 
-    private static final Pattern TERM = Pattern.compile("^\\s*(\\d{6})\\s*~\\s*(\\d{6})\\s*$");
+    /** "25.05~27.05" — 시작월은 선택적이다 ("~26.03" 형태가 실측 0.4% 존재) */
+    private static final Pattern SHORT_TERM =
+            Pattern.compile("^\\s*(?:(\\d{2})\\.(\\d{2}))?\\s*~\\s*(\\d{2})\\.(\\d{2})\\s*$");
+
+    /** "202505~202705" — 실측 0%지만 방어적으로 지원 */
+    private static final Pattern LONG_TERM =
+            Pattern.compile("^\\s*(\\d{6})\\s*~\\s*(\\d{6})\\s*$");
+
     private static final DateTimeFormatter YM = DateTimeFormatter.ofPattern("yyyyMM");
     private static final int DEFAULT_MONTHS = 24;
+    private static final int CENTURY = 2000;
 
     public record ContractTerm(String startYm, String endYm, boolean estimated) {
     }
@@ -1544,23 +1680,58 @@ public final class ContractTermParser {
     }
 
     public static ContractTerm parse(String raw, LocalDate dealDate) {
-        if (raw != null) {
-            Matcher matcher = TERM.matcher(raw);
-            if (matcher.matches()) {
-                YearMonth start = toYearMonth(matcher.group(1));
-                YearMonth end = toYearMonth(matcher.group(2));
-                if (start != null && end != null && !end.isBefore(start)) {
-                    return new ContractTerm(start.format(YM), end.format(YM), false);
-                }
-            }
+        if (raw == null || raw.isBlank()) {
+            return estimate(dealDate);
         }
+
+        Matcher shortMatch = SHORT_TERM.matcher(raw);
+        if (shortMatch.matches()) {
+            YearMonth start = shortMatch.group(1) == null
+                    ? null
+                    : toYearMonth(CENTURY + Integer.parseInt(shortMatch.group(1)),
+                                  Integer.parseInt(shortMatch.group(2)));
+            YearMonth end = toYearMonth(CENTURY + Integer.parseInt(shortMatch.group(3)),
+                                        Integer.parseInt(shortMatch.group(4)));
+            return build(start, end, shortMatch.group(1) != null, dealDate);
+        }
+
+        Matcher longMatch = LONG_TERM.matcher(raw);
+        if (longMatch.matches()) {
+            YearMonth start = toYearMonth(longMatch.group(1));
+            YearMonth end = toYearMonth(longMatch.group(2));
+            return build(start, end, true, dealDate);
+        }
+
         return estimate(dealDate);
+    }
+
+    /**
+     * 종료월을 얻었으면 확정으로 본다. 시작월은 없어도 무방하다 —
+     * 만기 예측에 필요한 것은 종료월뿐이다.
+     */
+    private static ContractTerm build(YearMonth start, YearMonth end,
+                                      boolean startRequired, LocalDate dealDate) {
+        if (end == null || (startRequired && start == null)) {
+            return estimate(dealDate);
+        }
+        if (start != null && end.isBefore(start)) {
+            return estimate(dealDate);
+        }
+        return new ContractTerm(start == null ? null : start.format(YM), end.format(YM), false);
     }
 
     private static ContractTerm estimate(LocalDate dealDate) {
         YearMonth start = YearMonth.from(dealDate);
         YearMonth end = start.plusMonths(DEFAULT_MONTHS);
         return new ContractTerm(start.format(YM), end.format(YM), true);
+    }
+
+    private static YearMonth toYearMonth(int year, int month) {
+        try {
+            return YearMonth.of(year, month);
+        } catch (DateTimeException e) {
+            return null;
+        }
     }
 
     private static YearMonth toYearMonth(String ym) {
@@ -1576,28 +1747,51 @@ public final class ContractTermParser {
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `./gradlew test --tests '*ContractTermParserTest'`
-Expected: PASS (7개 테스트)
+Expected: PASS (10개 테스트)
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 5: 실제 픽스처로 교차 확인**
+
+실제 응답의 `contractTerm` 값이 파서를 통과하는지 눈으로 확인한다.
+
+```bash
+grep -oE '<contractTerm>[^<]*</contractTerm>' src/test/resources/fixtures/molit/rent-ok.xml
+```
+
+픽스처 5건은 모두 공백일 수 있다(실측 표본에서 그랬다). 그 경우 이 스텝은 "공백 → 추정"
+경로만 확인하는 것으로 충분하다. Step 1의 단위 테스트가 나머지 형식을 덮는다.
+
+- [ ] **Step 6: 커밋**
 
 ```bash
 git add src/main/java/com/jeonseradar/deal/service/ContractTermParser.java src/test/java/com/jeonseradar/deal/service/ContractTermParserTest.java
-git commit -m "feat: 계약기간 파서 추가 (결측 시 24개월 추정 및 estimated 플래그)"
+git commit -m "feat: 계약기간 파서 추가 (실측 YY.MM~YY.MM 형식, 결측 시 24개월 추정)"
 ```
 
 ---
 
-### Task 6: 단지 정규화 — 지번 기준 병합
+### Task 6: 단지 정규화 — aptSeq 기준 병합
 
 **Files:**
 - Create: `src/main/java/com/jeonseradar/deal/repository/ComplexRepository.java`
-- Create: `src/main/java/com/jeonseradar/deal/service/ComplexResolver.java`
 - Create: `src/main/java/com/jeonseradar/deal/service/SlugGenerator.java`
+- Create: `src/main/java/com/jeonseradar/deal/service/ComplexResolver.java`
 - Test: `src/test/java/com/jeonseradar/deal/service/ComplexResolverTest.java`
 
 **Interfaces:**
 - Consumes: Task 4의 `Complex` 엔티티
-- Produces: `ComplexResolver.resolve(String regionCode, String legalDong, String jibun, String aptName, Integer buildYear) -> Long` (complexId 반환, 없으면 생성)
+- Produces: `ComplexResolver.resolve(String regionCode, String aptSeq, String legalDong, String jibun, String aptName, Integer buildYear) -> Long` (complexId 반환, 없으면 생성)
+
+**왜 지번이 아니라 aptSeq인가 (2026-09-21 실측, 전월세 17,532건):**
+
+| 항목 | 결과 |
+|---|---|
+| `aptSeq` 채움률 | 100% (매매·전월세 양쪽) |
+| 한 지번에 서로 다른 aptSeq 2개 이상 | **43건** — 지번으로 묶으면 다른 단지가 합쳐진다 |
+| 한 aptSeq가 여러 지번에 걸침 | 0건 |
+| 한 aptSeq에 서로 다른 아파트명 | **0건** |
+
+마지막 줄이 중요하다. aptSeq 안에서는 이름이 흔들리지 않으므로 **최빈값 수렴 로직이 필요 없다.**
+처음 본 이름을 그대로 쓰면 된다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1641,46 +1835,53 @@ class ComplexResolverTest {
     ComplexRepository repository;
 
     @Test
-    void 단지명_표기가_달라도_지번이_같으면_같은_단지로_묶인다() {
-        Long first = resolver.resolve("11110", "청운동", "123-4", "래미안청운", 2005);
-        Long second = resolver.resolve("11110", "청운동", "123-4", "래미안 청운", 2005);
-        Long third = resolver.resolve("11110", "청운동", "123-4", "래미안청운아파트", 2005);
+    void 같은_aptSeq는_같은_단지다() {
+        Long first = resolver.resolve("11110", "11110-2519", "무악동", "89", "경희궁롯데캐슬", 2019);
+        Long second = resolver.resolve("11110", "11110-2519", "무악동", "89", "경희궁롯데캐슬", 2019);
 
-        assertThat(first).isEqualTo(second).isEqualTo(third);
+        assertThat(first).isEqualTo(second);
     }
 
     @Test
-    void 지번이_다르면_다른_단지다() {
-        Long a = resolver.resolve("11110", "청운동", "123-4", "래미안청운", 2005);
-        Long b = resolver.resolve("11110", "청운동", "125", "래미안청운", 2005);
+    void 아파트명_표기가_달라도_aptSeq가_같으면_같은_단지다() {
+        Long a = resolver.resolve("11110", "11110-2446", "평동", "233", "경희궁자이(3단지)", 2017);
+        Long b = resolver.resolve("11110", "11110-2446", "평동", "233", "경희궁자이 3단지", 2017);
+
+        assertThat(a).isEqualTo(b);
+    }
+
+    @Test
+    void 같은_지번이라도_aptSeq가_다르면_다른_단지로_분리된다() {
+        // 실측 43건의 사례. 지번 기준이었다면 두 단지가 하나로 합쳐졌을 것이다.
+        // 예: 강남구 개포동 12 -> 11680-279, 11680-280
+        Long a = resolver.resolve("11680", "11680-279", "개포동", "12", "개포주공1단지", 1982);
+        Long b = resolver.resolve("11680", "11680-280", "개포동", "12", "개포주공2단지", 1982);
+
+        assertThat(a).isNotEqualTo(b);
+        assertThat(repository.count()).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void 시군구가_다르면_다른_단지다() {
+        Long a = resolver.resolve("11110", "11110-1", "중앙동", "1", "한화아파트", 2010);
+        Long b = resolver.resolve("11170", "11170-1", "중앙동", "1", "한화아파트", 2010);
 
         assertThat(a).isNotEqualTo(b);
     }
 
     @Test
-    void 법정동이_같아도_시군구가_다르면_다른_단지다() {
-        Long a = resolver.resolve("11110", "중앙동", "1", "한화아파트", 2010);
-        Long b = resolver.resolve("11170", "중앙동", "1", "한화아파트", 2010);
-
-        assertThat(a).isNotEqualTo(b);
-    }
-
-    @Test
-    void 표시명은_가장_많이_등장한_이름으로_수렴한다() {
-        resolver.resolve("11110", "부암동", "50", "삼성쉐르빌", 2003);
-        resolver.resolve("11110", "부암동", "50", "삼성쉐르빌", 2003);
-        resolver.resolve("11110", "부암동", "50", "삼성 쉐르빌", 2003);
-
-        Long id = resolver.resolve("11110", "부암동", "50", "삼성쉐르빌", 2003);
+    void 표시명은_처음_본_이름을_유지한다() {
+        Long id = resolver.resolve("11110", "11110-91", "창신동", "703", "창신쌍용2", 1993);
+        resolver.resolve("11110", "11110-91", "창신동", "703", "창신쌍용2", 1993);
 
         assertThat(repository.findById(id).orElseThrow().getDisplayName())
-                .isEqualTo("삼성쉐르빌");
+                .isEqualTo("창신쌍용2");
     }
 
     @Test
     void slug는_단지마다_고유하다() {
-        Long a = resolver.resolve("11110", "청운동", "200", "자이", 2015);
-        Long b = resolver.resolve("11110", "청운동", "201", "자이", 2015);
+        Long a = resolver.resolve("11110", "11110-500", "청운동", "200", "자이", 2015);
+        Long b = resolver.resolve("11110", "11110-501", "청운동", "201", "자이", 2015);
 
         String slugA = repository.findById(a).orElseThrow().getSlug();
         String slugB = repository.findById(b).orElseThrow().getSlug();
@@ -1689,7 +1890,6 @@ class ComplexResolverTest {
     }
 }
 ```
-
 
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
@@ -1710,8 +1910,7 @@ import java.util.Optional;
 
 public interface ComplexRepository extends JpaRepository<Complex, Long> {
 
-    Optional<Complex> findByRegionCodeAndLegalDongAndJibun(
-            String regionCode, String legalDong, String jibun);
+    Optional<Complex> findByRegionCodeAndAptSeq(String regionCode, String aptSeq);
 
     boolean existsBySlug(String slug);
 }
@@ -1734,14 +1933,14 @@ public final class SlugGenerator {
 
     /**
      * URL 경로용 slug. 한글은 유지하고(검색엔진이 처리 가능) 공백·특수문자만 정리한다.
-     * 지번을 뒤에 붙여 같은 이름의 다른 단지를 구분한다.
+     * aptSeq를 뒤에 붙여 같은 이름의 다른 단지를 구분한다.
      */
-    public static String generate(String aptName, String legalDong, String jibun) {
+    public static String generate(String aptName, String aptSeq) {
         String base = Normalizer.normalize(aptName == null ? "" : aptName, Normalizer.Form.NFC)
                 .toLowerCase(Locale.KOREAN)
                 .replaceAll("[^0-9a-z가-힣]+", "-")
                 .replaceAll("(^-|-$)", "");
-        String suffix = (legalDong + "-" + jibun)
+        String suffix = (aptSeq == null ? "" : aptSeq)
                 .replaceAll("[^0-9a-z가-힣-]+", "-")
                 .replaceAll("(^-|-$)", "");
         String slug = base.isEmpty() ? suffix : base + "-" + suffix;
@@ -1762,61 +1961,35 @@ import com.jeonseradar.deal.repository.ComplexRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
- * 단지 식별은 아파트명이 아니라 (지역코드, 법정동, 지번) 기준이다.
- * 두 API의 아파트명 표기가 서로 흔들려서 이름으로 조인하면 같은 단지가 갈라진다 (스펙 §1.4).
+ * 단지 식별은 아파트명도 지번도 아닌 aptSeq 기준이다.
+ *
+ * 아파트명은 두 API 간 표기가 흔들리고, 지번은 서로 다른 단지 여럿을 한 값으로 합쳐버린다
+ * (실측 43건). aptSeq는 채움률 100%이고 한 값이 여러 지번에 걸치거나 이름이 흔들리는
+ * 사례가 실측 0건이므로, 최빈값 수렴 같은 보정 로직 없이 그대로 키로 쓸 수 있다 (스펙 §1.4).
  */
 @Service
 public class ComplexResolver {
 
     private final ComplexRepository repository;
 
-    /** complexId -> (아파트명 -> 등장횟수). 표시명을 최빈값으로 수렴시키기 위한 집계. */
-    private final Map<Long, Map<String, Integer>> nameCounts = new ConcurrentHashMap<>();
-
     public ComplexResolver(ComplexRepository repository) {
         this.repository = repository;
     }
 
     @Transactional
-    public Long resolve(String regionCode, String legalDong, String jibun,
+    public Long resolve(String regionCode, String aptSeq, String legalDong, String jibun,
                         String aptName, Integer buildYear) {
-        Complex complex = repository
-                .findByRegionCodeAndLegalDongAndJibun(regionCode, legalDong, jibun)
+        return repository.findByRegionCodeAndAptSeq(regionCode, aptSeq)
                 .orElseGet(() -> repository.save(new Complex(
-                        regionCode, legalDong, jibun,
+                        regionCode, aptSeq, legalDong, jibun,
                         aptName, buildYear,
-                        uniqueSlug(aptName, legalDong, jibun))));
-
-        applyMostFrequentName(complex, aptName);
-        return complex.getId();
+                        uniqueSlug(aptName, aptSeq))))
+                .getId();
     }
 
-    private void applyMostFrequentName(Complex complex, String aptName) {
-        if (aptName == null || aptName.isBlank()) {
-            return;
-        }
-        Map<String, Integer> counts =
-                nameCounts.computeIfAbsent(complex.getId(), k -> new HashMap<>());
-        counts.merge(aptName, 1, Integer::sum);
-
-        String winner = counts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(aptName);
-
-        if (!winner.equals(complex.getDisplayName())) {
-            complex.updateDisplayName(winner);
-            repository.save(complex);
-        }
-    }
-
-    private String uniqueSlug(String aptName, String legalDong, String jibun) {
-        String slug = SlugGenerator.generate(aptName, legalDong, jibun);
+    private String uniqueSlug(String aptName, String aptSeq) {
+        String slug = SlugGenerator.generate(aptName, aptSeq);
         if (!repository.existsBySlug(slug)) {
             return slug;
         }
@@ -1829,18 +2002,16 @@ public class ComplexResolver {
 }
 ```
 
-`nameCounts`는 프로세스 메모리 집계라 재시작하면 초기화된다. 1단계에서는 백필이 단일 프로세스로 한 번에 돌기 때문에 충분하다. 2단계에서 집계 배치로 옮긴다.
-
 - [ ] **Step 6: 테스트 통과 확인**
 
 Run: `./gradlew test --tests '*ComplexResolverTest'`
-Expected: PASS (5개 테스트)
+Expected: PASS (6개 테스트)
 
 - [ ] **Step 7: 커밋**
 
 ```bash
 git add src/main/java/com/jeonseradar/deal src/test/java/com/jeonseradar/deal
-git commit -m "feat: 지번 기준 단지 정규화 및 표시명 최빈값 수렴 추가"
+git commit -m "feat: aptSeq 기준 단지 정규화 추가"
 ```
 
 ---
@@ -1905,12 +2076,12 @@ class DealUpsertDaoTest {
     @Autowired
     TradeDealRepository repository;
 
-    /** 테스트 픽스처. TradeDeal에 이 시그니처의 정적 팩토리를 추가한다. */
+    /** 테스트 픽스처. TradeDeal.of 는 Task 4에서 이미 만들어져 있다. */
     private TradeDeal sample(String hash, String cancelYn, LocalDate registeredDate) {
-        return TradeDeal.forTest(
-                hash, 1L, "11110", "청운동", "123-4", "래미안청운",
-                new java.math.BigDecimal("84.97"), 85, 5,
-                LocalDate.of(2026, 3, 14), 1_250_000_000L, 2005,
+        return TradeDeal.of(
+                hash, 1L, "11110-2446", "11110", "평동", "233", "경희궁자이(3단지)",
+                new java.math.BigDecimal("59.85"), 60, 2,
+                LocalDate.of(2026, 3, 7), 2_300_000_000L, 2017,
                 "중개거래", "서울 종로구", registeredDate, cancelYn, null);
     }
 
@@ -1963,60 +2134,21 @@ class DealUpsertDaoTest {
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
 Run: `./gradlew test --tests '*DealUpsertDaoTest'`
-Expected: FAIL — `DealUpsertDao`, `TradeDeal.forTest`, `findByDealHash` 없음
+Expected: FAIL — `DealUpsertDao`, `findByDealHash` 없음 (`TradeDeal.of`는 Task 4에서 이미 존재)
 
-- [ ] **Step 3: TradeDeal에 정적 팩토리와 getter 추가**
+- [ ] **Step 3: Task 4의 TradeDeal 정적 팩토리·getter 확인**
 
-`TradeDeal`에 다음을 추가한다 (Task 4에서 만든 클래스).
+`TradeDeal.of(...)`와 getter들은 Task 4에서 이미 작성되어 있다. 새로 추가할 것은 없다.
+아래만 확인하고 넘어간다.
 
-```java
-    public static TradeDeal forTest(String dealHash, Long complexId, String regionCode,
-                                    String legalDong, String jibun, String aptName,
-                                    java.math.BigDecimal area, Integer areaBucket, Integer floor,
-                                    LocalDate dealDate, Long dealAmount, Integer buildYear,
-                                    String dealType, String agentRegion,
-                                    LocalDate registeredDate, String cancelYn, LocalDate cancelDate) {
-        TradeDeal deal = new TradeDeal();
-        deal.dealHash = dealHash;
-        deal.complexId = complexId;
-        deal.regionCode = regionCode;
-        deal.legalDong = legalDong;
-        deal.jibun = jibun;
-        deal.aptName = aptName;
-        deal.area = area;
-        deal.areaBucket = areaBucket;
-        deal.floor = floor;
-        deal.dealDate = dealDate;
-        deal.dealAmount = dealAmount;
-        deal.buildYear = buildYear;
-        deal.dealType = dealType;
-        deal.agentRegion = agentRegion;
-        deal.registeredDate = registeredDate;
-        deal.cancelYn = cancelYn;
-        deal.cancelDate = cancelDate;
-        return deal;
-    }
-
-    public String getDealHash() { return dealHash; }
-    public String getCancelYn() { return cancelYn; }
-    public LocalDate getRegisteredDate() { return registeredDate; }
-    public Long getComplexId() { return complexId; }
-    public String getRegionCode() { return regionCode; }
-    public String getLegalDong() { return legalDong; }
-    public String getJibun() { return jibun; }
-    public String getAptName() { return aptName; }
-    public java.math.BigDecimal getArea() { return area; }
-    public Integer getAreaBucket() { return areaBucket; }
-    public Integer getFloor() { return floor; }
-    public LocalDate getDealDate() { return dealDate; }
-    public Long getDealAmount() { return dealAmount; }
-    public Integer getBuildYear() { return buildYear; }
-    public String getDealType() { return dealType; }
-    public String getAgentRegion() { return agentRegion; }
-    public LocalDate getCancelDate() { return cancelDate; }
+```bash
+grep -n 'public static TradeDeal of' src/main/java/com/jeonseradar/deal/entity/TradeDeal.java
+grep -c 'public .* get' src/main/java/com/jeonseradar/deal/entity/TradeDeal.java
 ```
 
-`forTest`라는 이름이지만 운영 매퍼(Task 8)에서도 생성자로 사용한다. 이름을 `of`로 바꾸고 테스트도 함께 고쳐도 무방하다.
+`of`가 없거나 인자 수가 18개(`dealHash, complexId, aptSeq, regionCode, legalDong, jibun,
+aptName, area, areaBucket, floor, dealDate, dealAmount, buildYear, dealType, agentRegion,
+registeredDate, cancelYn, cancelDate`)가 아니면 Task 4의 엔티티 정의와 대조해 맞춘다.
 
 - [ ] **Step 4: Repository 작성**
 
@@ -2080,11 +2212,11 @@ public class DealUpsertDao {
 
     private static final String TRADE_SQL = """
             INSERT INTO trade_deal
-              (deal_hash, complex_id, region_code, legal_dong, jibun, apt_name,
+              (deal_hash, complex_id, apt_seq, region_code, legal_dong, jibun, apt_name,
                area, area_bucket, floor, deal_date, deal_amount, build_year,
                deal_type, agent_region, registered_date, cancel_yn, cancel_date,
                created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), NOW())
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), NOW())
             ON DUPLICATE KEY UPDATE
               registered_date = VALUES(registered_date),
               cancel_yn       = VALUES(cancel_yn),
@@ -2108,21 +2240,22 @@ public class DealUpsertDao {
                 (PreparedStatement ps, TradeDeal d) -> {
                     ps.setString(1, d.getDealHash());
                     setLongOrNull(ps, 2, d.getComplexId());
-                    ps.setString(3, d.getRegionCode());
-                    ps.setString(4, d.getLegalDong());
-                    ps.setString(5, d.getJibun());
-                    ps.setString(6, d.getAptName());
-                    ps.setBigDecimal(7, d.getArea());
-                    ps.setInt(8, d.getAreaBucket());
-                    ps.setInt(9, d.getFloor());
-                    ps.setDate(10, Date.valueOf(d.getDealDate()));
-                    ps.setLong(11, d.getDealAmount());
-                    setIntOrNull(ps, 12, d.getBuildYear());
-                    ps.setString(13, d.getDealType());
-                    ps.setString(14, d.getAgentRegion());
-                    setDateOrNull(ps, 15, d.getRegisteredDate());
-                    ps.setString(16, d.getCancelYn());
-                    setDateOrNull(ps, 17, d.getCancelDate());
+                    ps.setString(3, d.getAptSeq());
+                    ps.setString(4, d.getRegionCode());
+                    ps.setString(5, d.getLegalDong());
+                    ps.setString(6, d.getJibun());
+                    ps.setString(7, d.getAptName());
+                    ps.setBigDecimal(8, d.getArea());
+                    ps.setInt(9, d.getAreaBucket());
+                    ps.setInt(10, d.getFloor());
+                    ps.setDate(11, Date.valueOf(d.getDealDate()));
+                    ps.setLong(12, d.getDealAmount());
+                    setIntOrNull(ps, 13, d.getBuildYear());
+                    ps.setString(14, d.getDealType());
+                    ps.setString(15, d.getAgentRegion());
+                    setDateOrNull(ps, 16, d.getRegisteredDate());
+                    ps.setString(17, d.getCancelYn());
+                    setDateOrNull(ps, 18, d.getCancelDate());
                 })[0].length;
         return affected;
     }
@@ -2167,12 +2300,12 @@ public class DealUpsertDao {
 ```java
     private static final String RENT_SQL = """
             INSERT INTO rent_deal
-              (deal_hash, complex_id, region_code, legal_dong, jibun, apt_name,
+              (deal_hash, complex_id, apt_seq, region_code, legal_dong, jibun, apt_name,
                area, area_bucket, floor, deal_date, deposit, monthly_rent, build_year,
                contract_type, contract_term_raw, term_start_ym, term_end_ym,
                term_estimated, renewal_right_used, prev_deposit, prev_monthly_rent,
                created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), NOW())
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, NOW(), NOW())
             ON DUPLICATE KEY UPDATE
               complex_id = VALUES(complex_id),
               updated_at = NOW()
@@ -2187,25 +2320,26 @@ public class DealUpsertDao {
                 (PreparedStatement ps, RentDeal d) -> {
                     ps.setString(1, d.getDealHash());
                     setLongOrNull(ps, 2, d.getComplexId());
-                    ps.setString(3, d.getRegionCode());
-                    ps.setString(4, d.getLegalDong());
-                    ps.setString(5, d.getJibun());
-                    ps.setString(6, d.getAptName());
-                    ps.setBigDecimal(7, d.getArea());
-                    ps.setInt(8, d.getAreaBucket());
-                    ps.setInt(9, d.getFloor());
-                    ps.setDate(10, Date.valueOf(d.getDealDate()));
-                    ps.setLong(11, d.getDeposit());
-                    ps.setLong(12, d.getMonthlyRent());
-                    setIntOrNull(ps, 13, d.getBuildYear());
-                    ps.setString(14, d.getContractType());
-                    ps.setString(15, d.getContractTermRaw());
-                    ps.setString(16, d.getTermStartYm());
-                    ps.setString(17, d.getTermEndYm());
-                    ps.setBoolean(18, Boolean.TRUE.equals(d.getTermEstimated()));
-                    ps.setBoolean(19, Boolean.TRUE.equals(d.getRenewalRightUsed()));
-                    setLongOrNull(ps, 20, d.getPrevDeposit());
-                    setLongOrNull(ps, 21, d.getPrevMonthlyRent());
+                    ps.setString(3, d.getAptSeq());
+                    ps.setString(4, d.getRegionCode());
+                    ps.setString(5, d.getLegalDong());
+                    ps.setString(6, d.getJibun());
+                    ps.setString(7, d.getAptName());
+                    ps.setBigDecimal(8, d.getArea());
+                    ps.setInt(9, d.getAreaBucket());
+                    ps.setInt(10, d.getFloor());
+                    ps.setDate(11, Date.valueOf(d.getDealDate()));
+                    ps.setLong(12, d.getDeposit());
+                    ps.setLong(13, d.getMonthlyRent());
+                    setIntOrNull(ps, 14, d.getBuildYear());
+                    ps.setString(15, d.getContractType());
+                    ps.setString(16, d.getContractTermRaw());
+                    ps.setString(17, d.getTermStartYm());
+                    ps.setString(18, d.getTermEndYm());
+                    ps.setBoolean(19, Boolean.TRUE.equals(d.getTermEstimated()));
+                    ps.setBoolean(20, Boolean.TRUE.equals(d.getRenewalRightUsed()));
+                    setLongOrNull(ps, 21, d.getPrevDeposit());
+                    setLongOrNull(ps, 22, d.getPrevMonthlyRent());
                 });
         return deals.size();
     }
@@ -2259,6 +2393,7 @@ package com.jeonseradar.ingest.mapper;
 import com.jeonseradar.deal.entity.TradeDeal;
 import com.jeonseradar.deal.service.ComplexResolver;
 import com.jeonseradar.ingest.parser.MolitFields;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -2276,70 +2411,86 @@ class TradeDealMapperTest {
     private final ComplexResolver resolver = mock(ComplexResolver.class);
     private final TradeDealMapper mapper = new TradeDealMapper(resolver);
 
+    @BeforeEach
+    void setUp() {
+        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(7L);
+    }
+
     private Map<String, String> item() {
+        // 실측 응답(trade-ok.xml)의 첫 item을 그대로 옮긴 값
         Map<String, String> item = new HashMap<>();
+        item.put(MolitFields.APT_SEQ, "11110-2446");
         item.put(MolitFields.SGG_CD, "11110");
-        item.put(MolitFields.UMD_NM, "청운동");
-        item.put(MolitFields.JIBUN, "123-4");
-        item.put(MolitFields.APT_NM, "래미안청운");
-        item.put(MolitFields.EXCLU_USE_AR, "84.97");
-        item.put(MolitFields.FLOOR, "5");
-        item.put(MolitFields.BUILD_YEAR, "2005");
+        item.put(MolitFields.UMD_NM, "평동");
+        item.put(MolitFields.JIBUN, "233");
+        item.put(MolitFields.APT_NM, "경희궁자이(3단지)");
+        item.put(MolitFields.EXCLU_USE_AR, "59.8547");
+        item.put(MolitFields.FLOOR, "2");
+        item.put(MolitFields.BUILD_YEAR, "2017");
         item.put(MolitFields.DEAL_YEAR, "2026");
         item.put(MolitFields.DEAL_MONTH, "3");
-        item.put(MolitFields.DEAL_DAY, "14");
-        item.put(MolitFields.DEAL_AMOUNT, "  125,000");
+        item.put(MolitFields.DEAL_DAY, "7");
+        item.put(MolitFields.DEAL_AMOUNT, "230,000");
         item.put(MolitFields.DEALING_GBN, "중개거래");
         item.put(MolitFields.ESTATE_AGENT_SGG_NM, "서울 종로구");
-        item.put(MolitFields.RGST_DATE, "");
-        item.put(MolitFields.CDEAL_TYPE, "");
+        item.put(MolitFields.RGST_DATE, "26.06.30");
+        item.put(MolitFields.CDEAL_TYPE, " ");
+        item.put(MolitFields.CDEAL_DAY, " ");
         return item;
     }
 
     @Test
     void 금액을_원단위로_매핑한다() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(7L);
-
         TradeDeal deal = mapper.map(item());
 
-        assertThat(deal.getDealAmount()).isEqualTo(1_250_000_000L);
+        // 실측: dealAmount "230,000" (만원) -> 23억
+        assertThat(deal.getDealAmount()).isEqualTo(2_300_000_000L);
     }
 
     @Test
-    void 면적버킷을_계산한다() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(7L);
-
+    void 소수점_넷째자리_면적을_버킷으로_반올림한다() {
         TradeDeal deal = mapper.map(item());
 
-        assertThat(deal.getAreaBucket()).isEqualTo(85);
+        // 실측: excluUseAr "59.8547" -> 버킷 60
+        assertThat(deal.getAreaBucket()).isEqualTo(60);
     }
 
     @Test
     void 계약일을_조립한다() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(7L);
-
         TradeDeal deal = mapper.map(item());
 
-        assertThat(deal.getDealDate()).isEqualTo(LocalDate.of(2026, 3, 14));
+        assertThat(deal.getDealDate()).isEqualTo(LocalDate.of(2026, 3, 7));
     }
 
     @Test
-    void 등기일자가_비면_null이고_미등기로_남는다() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(7L);
-
+    void 등기일자를_yy점MM점dd_형식으로_파싱한다() {
         TradeDeal deal = mapper.map(item());
+
+        // 실측: rgstDate "26.06.30"
+        assertThat(deal.getRegisteredDate()).isEqualTo(LocalDate.of(2026, 6, 30));
+    }
+
+    @Test
+    void 등기일자가_공백_한칸이면_미등기로_남는다() {
+        Map<String, String> item = item();
+        item.put(MolitFields.RGST_DATE, " ");
+
+        TradeDeal deal = mapper.map(item);
 
         assertThat(deal.getRegisteredDate()).isNull();
     }
 
     @Test
+    void 해제여부가_공백_한칸이면_빈값으로_정규화된다() {
+        // 실측: cdealType 은 값이 없을 때 "" 이 아니라 " " 로 온다
+        TradeDeal deal = mapper.map(item());
+
+        assertThat(deal.getCancelYn()).isEmpty();
+    }
+
+    @Test
     void 해제여부가_O면_그대로_저장한다() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(7L);
         Map<String, String> item = item();
         item.put(MolitFields.CDEAL_TYPE, "O");
         item.put(MolitFields.CDEAL_DAY, "26.04.01");
@@ -2347,11 +2498,26 @@ class TradeDealMapperTest {
         TradeDeal deal = mapper.map(item);
 
         assertThat(deal.getCancelYn()).isEqualTo("O");
+        assertThat(deal.getCancelDate()).isEqualTo(LocalDate.of(2026, 4, 1));
     }
 
     @Test
-    void complexId는_ComplexResolver가_준_값이다() {
-        when(resolver.resolve("11110", "청운동", "123-4", "래미안청운", 2005))
+    void aptSeq를_보존한다() {
+        TradeDeal deal = mapper.map(item());
+
+        assertThat(deal.getAptSeq()).isEqualTo("11110-2446");
+    }
+
+    @Test
+    void 면적은_소수점_둘째자리로_저장된다() {
+        TradeDeal deal = mapper.map(item());
+
+        assertThat(deal.getArea()).isEqualByComparingTo(new java.math.BigDecimal("59.85"));
+    }
+
+    @Test
+    void complexId는_aptSeq로_조회한_ComplexResolver_결과다() {
+        when(resolver.resolve("11110", "11110-2446", "평동", "233", "경희궁자이(3단지)", 2017))
                 .thenReturn(42L);
 
         TradeDeal deal = mapper.map(item());
@@ -2396,6 +2562,7 @@ public class TradeDealMapper {
     }
 
     public TradeDeal map(Map<String, String> item) {
+        String aptSeq = text(item, MolitFields.APT_SEQ);
         String regionCode = text(item, MolitFields.SGG_CD);
         String legalDong = text(item, MolitFields.UMD_NM);
         String jibun = FieldConverter.toJibun(item);
@@ -2407,11 +2574,12 @@ public class TradeDealMapper {
         LocalDate dealDate = FieldConverter.toDealDate(item);
         long amount = FieldConverter.toWon(item.get(MolitFields.DEAL_AMOUNT));
 
-        Long complexId = complexResolver.resolve(regionCode, legalDong, jibun, aptName, buildYear);
+        Long complexId = complexResolver.resolve(
+                regionCode, aptSeq, legalDong, jibun, aptName, buildYear);
         String hash = DealHasher.hashTrade(regionCode, legalDong, jibun, area, floor, dealDate, amount);
 
-        return TradeDeal.forTest(
-                hash, complexId, regionCode, legalDong, jibun, aptName,
+        return TradeDeal.of(
+                hash, complexId, aptSeq, regionCode, legalDong, jibun, aptName,
                 area, FieldConverter.toAreaBucket(area), floor,
                 dealDate, amount, buildYear,
                 text(item, MolitFields.DEALING_GBN),
@@ -2473,29 +2641,32 @@ class RentDealMapperTest {
 
     @BeforeEach
     void setUp() {
-        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), any()))
+        when(resolver.resolve(anyString(), anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(7L);
     }
 
     private Map<String, String> item() {
+        // 실측 응답(rent-ok.xml)의 첫 item을 그대로 옮긴 값.
+        // 실측에서 contractTerm/useRRRight/preDeposit 은 값이 없을 때 " " 로 온다.
         Map<String, String> item = new HashMap<>();
+        item.put(MolitFields.APT_SEQ, "11110-2519");
         item.put(MolitFields.SGG_CD, "11110");
-        item.put(MolitFields.UMD_NM, "청운동");
-        item.put(MolitFields.JIBUN, "123-4");
-        item.put(MolitFields.APT_NM, "래미안청운");
-        item.put(MolitFields.EXCLU_USE_AR, "84.97");
-        item.put(MolitFields.FLOOR, "5");
-        item.put(MolitFields.BUILD_YEAR, "2005");
+        item.put(MolitFields.UMD_NM, "무악동");
+        item.put(MolitFields.JIBUN, "89");
+        item.put(MolitFields.APT_NM, "경희궁롯데캐슬");
+        item.put(MolitFields.EXCLU_USE_AR, "59.6737");
+        item.put(MolitFields.FLOOR, "11");
+        item.put(MolitFields.BUILD_YEAR, "2019");
         item.put(MolitFields.DEAL_YEAR, "2026");
         item.put(MolitFields.DEAL_MONTH, "3");
-        item.put(MolitFields.DEAL_DAY, "14");
-        item.put(MolitFields.DEPOSIT, "50,000");
+        item.put(MolitFields.DEAL_DAY, "19");
+        item.put(MolitFields.DEPOSIT, "71,400");
         item.put(MolitFields.MONTHLY_RENT, "0");
         item.put(MolitFields.CONTRACT_TYPE, "신규");
-        item.put(MolitFields.CONTRACT_TERM, "202603~202803");
-        item.put(MolitFields.USE_RR_RIGHT, "");
-        item.put(MolitFields.PRE_DEPOSIT, "");
-        item.put(MolitFields.PRE_MONTHLY_RENT, "");
+        item.put(MolitFields.CONTRACT_TERM, "26.03~28.03");
+        item.put(MolitFields.USE_RR_RIGHT, " ");
+        item.put(MolitFields.PRE_DEPOSIT, " ");
+        item.put(MolitFields.PRE_MONTHLY_RENT, " ");
         return item;
     }
 
@@ -2503,7 +2674,8 @@ class RentDealMapperTest {
     void 보증금을_원단위로_매핑한다() {
         RentDeal deal = mapper.map(item());
 
-        assertThat(deal.getDeposit()).isEqualTo(500_000_000L);
+        // 실측: deposit "71,400" (만원) -> 7억 1,400만원
+        assertThat(deal.getDeposit()).isEqualTo(714_000_000L);
     }
 
     @Test
@@ -2544,14 +2716,16 @@ class RentDealMapperTest {
     void 계약기간이_정상이면_만기월을_읽고_estimated가_false다() {
         RentDeal deal = mapper.map(item());
 
+        // 실측 형식 "26.03~28.03" -> 만기 202803
         assertThat(deal.getTermEndYm()).isEqualTo("202803");
         assertThat(deal.getTermEstimated()).isFalse();
     }
 
     @Test
-    void 계약기간이_비면_계약일_더하기_24개월로_추정하고_estimated가_true다() {
+    void 계약기간이_공백_한칸이면_계약일_더하기_24개월로_추정하고_estimated가_true다() {
+        // 실측: 결측은 "" 이 아니라 " " 로 온다
         Map<String, String> item = item();
-        item.put(MolitFields.CONTRACT_TERM, "");
+        item.put(MolitFields.CONTRACT_TERM, " ");
 
         RentDeal deal = mapper.map(item);
 
@@ -2563,7 +2737,8 @@ class RentDealMapperTest {
     void 계약기간_원본문자열을_보존한다() {
         RentDeal deal = mapper.map(item());
 
-        assertThat(deal.getContractTermRaw()).isEqualTo("202603~202803");
+        // 파싱 결과가 아니라 원본을 그대로 남긴다 — 결측률 실측(Task 11)의 근거가 된다
+        assertThat(deal.getContractTermRaw()).isEqualTo("26.03~28.03");
     }
 
     @Test
@@ -2586,9 +2761,10 @@ class RentDealMapperTest {
 }
 ```
 
-`계약기간이_정상이면...`과 `계약기간이_비면...`이 같은 `202803`을 기대하는 것은 우연이 아니다.
-계약일이 2026-03이고 계약기간이 `202603~202803`이므로 추정값과 실제값이 일치한다.
-`estimated` 플래그가 두 경우를 구분하는 유일한 근거이며, 그래서 이 플래그를 반드시 저장해야 한다.
+`계약기간이_정상이면...`과 `계약기간이_공백_한칸이면...`이 같은 `202803`을 기대하는 것은 우연이 아니다.
+계약일이 2026-03이고 계약기간이 `26.03~28.03`이므로 추정값과 실제값이 일치한다.
+**`estimated` 플래그가 두 경우를 구분하는 유일한 근거이며, 그래서 이 플래그를 반드시 저장해야 한다.**
+`contractTermRaw` 원본 보존도 같은 이유다 — Task 11의 결측률 실측이 이 컬럼에 의존한다.
 
 - [ ] **Step 4b: 테스트 실행해 실패 확인**
 
@@ -2626,6 +2802,7 @@ public class RentDealMapper {
     }
 
     public RentDeal map(Map<String, String> item) {
+        String aptSeq = text(item, MolitFields.APT_SEQ);
         String regionCode = text(item, MolitFields.SGG_CD);
         String legalDong = text(item, MolitFields.UMD_NM);
         String jibun = FieldConverter.toJibun(item);
@@ -2642,12 +2819,13 @@ public class RentDealMapper {
         String termRaw = text(item, MolitFields.CONTRACT_TERM);
         var term = ContractTermParser.parse(termRaw, dealDate);
 
-        Long complexId = complexResolver.resolve(regionCode, legalDong, jibun, aptName, buildYear);
+        Long complexId = complexResolver.resolve(
+                regionCode, aptSeq, legalDong, jibun, aptName, buildYear);
         String hash = DealHasher.hashRent(
                 regionCode, legalDong, jibun, area, floor, dealDate, deposit, monthlyRent);
 
         return RentDeal.of(
-                hash, complexId, regionCode, legalDong, jibun, aptName,
+                hash, complexId, aptSeq, regionCode, legalDong, jibun, aptName,
                 area, FieldConverter.toAreaBucket(area), floor,
                 dealDate, deposit, monthlyRent, buildYear,
                 text(item, MolitFields.CONTRACT_TYPE),
@@ -2692,6 +2870,9 @@ public class RentDealMapper {
 
 Run: `./gradlew test --tests '*RentDealMapperTest'`
 Expected: PASS (10개 테스트)
+
+전월세 API에는 `aptSeq`가 있으나 매매와 달리 `bonbun`/`bubun`이 없고 `jibun`만 온다
+(실측 확인). `FieldConverter.toJibun`이 `jibun` 우선이므로 그대로 동작한다.
 
 - [ ] **Step 5: ApiType과 설정 프로퍼티 작성**
 
@@ -2830,7 +3011,17 @@ public class MolitApiClient {
                 .build(true)
                 .toUriString();
 
-        String body = restClient.get().uri(uri).retrieve().body(String.class);
+        // 공공 API는 인증 오류·쿼터 초과를 HTTP 403 등 4xx로 반환하면서 본문에
+        // <cmmMsgHeader><returnReasonCode>로 진짜 원인을 담아 보낸다 (2026-09-21 실측).
+        // retrieve()의 기본 동작은 4xx/5xx에서 예외를 던지는 것이라, 그대로 두면 본문이
+        // 파서에 도달하지 못하고 INVALID_KEY/QUOTA_EXCEEDED가 일반 예외로 뭉개져
+        // "즉시 중단" 대신 재시도로 빠진다 — 스펙 §1.6 위반.
+        // 따라서 상태 코드로는 절대 실패시키지 않고, 언제나 본문의 resultCode로 판정한다.
+        String body = restClient.get()
+                .uri(uri)
+                .retrieve()
+                .onStatus(status -> true, (request, response) -> { })
+                .body(String.class);
         return parser.parse(body == null ? "" : body);
     }
 
@@ -2847,7 +3038,12 @@ public class MolitApiClient {
 }
 ```
 
-`serviceKey`는 이미 URL 인코딩된 값으로 발급되는 경우가 있다. `build(true)`는 재인코딩을 막는다. 401이 나면 디코딩된 키로 바꾸고 `build(false)`로 시도한다.
+`serviceKey`는 이미 URL 인코딩된 값으로 발급되는 경우가 있다. `build(true)`는 재인코딩을 막는다.
+`.env.local`의 `MOLIT_SERVICE_KEY`는 **디코딩된 형태**이며 실제 호출로 동작이 확인됐다.
+
+**`onStatus(status -> true, ...)`를 빼면 안 된다.** 실측에서 인증 오류는 HTTP 403으로 오고,
+쿼터 초과도 같은 경로를 탄다. 이 핸들러가 없으면 파서가 본문을 보지 못해
+쿼터가 소진된 뒤에도 배치가 멈추지 않고 계속 API를 호출한다.
 
 - [ ] **Step 7: 테스트 통과 확인**
 
@@ -3877,7 +4073,21 @@ git commit -m "feat: 전국 시군구 목록 및 백필/증분 배치 추가"
 - Produces: `DataQualityReporter.report() -> QualityReport`
   - `record QualityReport(long totalRent, long estimatedTerm, double estimatedRatio, long pureJeonse, long renewalRightUsed, long complexCount)`
 
-**이 태스크가 1단계의 종료 조건이다.** 스펙 §6의 검증 게이트를 실행한다.
+**이 태스크가 1단계의 종료 조건이다.** 스펙 §6의 검증 게이트를 전수 데이터로 실행한다.
+
+**사전 실측 기준선 (2026-09-21, 표본 26,173건 / 6개 시군구 × 6개월):**
+
+| 지표 | 사전 실측값 |
+|---|---|
+| `contractTerm` 채움률 | **95.6%** (계약년월별 93.6~97.1%) |
+| → `term_estimated = true` 예상 비율 | **약 4~5%** |
+| `useRRRight = 사용` (전체 대비) | 18.2% |
+| `contractType = 갱신` | 36.1% |
+| `aptSeq` 채움률 | 100% |
+
+전수 결과가 이 기준선에서 크게 벗어나면 파서나 매퍼에 결함이 있다는 신호다.
+특히 **`term_estimated` 비율이 50%를 넘으면 `ContractTermParser`가 실제 형식
+(`YY.MM~YY.MM`)을 못 읽고 있을 가능성부터 의심한다** — 지표 설계 문제가 아니라 버그다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -4069,8 +4279,19 @@ SELECT status, COUNT(*) FROM ingest_log GROUP BY status;
 
 `docs/superpowers/reports/<실행일>-phase1-data-quality.md`에 위 쿼리 결과를 표로 기록하고, 다음 판정을 명시한다.
 
-- **추정비율 ≤ 50%** → 2단계 진행. 만기 예측은 스펙 §3.2 그대로 간다.
-- **추정비율 > 50%** → **2단계 계획 작성 전에 지표 재설계.** 만기월 기반 예측의 신뢰도가 낮으므로, 계약기간이 확정된 건만 대상으로 하는 축소 지표나 대체 접근을 검토한다.
+- **추정비율 ≤ 10%** → 사전 실측과 일치. 2단계 진행, 만기 예측은 스펙 §3.2 그대로 간다.
+- **추정비율 10~50%** → 기준선과 어긋남. **파서 결함을 먼저 의심하고 조사한다.**
+  `contract_term_raw`가 비어있지 않은데 `term_estimated = true`인 행을 표본으로 뽑아
+  어떤 형식이 파싱에 실패했는지 확인한다:
+  ```sql
+  SELECT contract_term_raw, COUNT(*) FROM rent_deal
+  WHERE term_estimated = TRUE AND TRIM(contract_term_raw) <> ''
+  GROUP BY contract_term_raw ORDER BY COUNT(*) DESC LIMIT 20;
+  ```
+  이 쿼리가 결과를 뱉으면 파서 버그이지 데이터 문제가 아니다.
+- **추정비율 > 50%이고 위 쿼리가 비어 있음** → 진짜로 원본에 계약기간이 없다는 뜻.
+  **2단계 계획 작성 전에 지표 재설계.** 계약기간이 확정된 건만 대상으로 하는 축소 지표나
+  대체 접근을 검토한다. (사전 실측과 배치되는 결과이므로 개연성은 낮다.)
 
 판정 결과와 근거 수치를 문서 첫 줄에 한 문장으로 적는다.
 
