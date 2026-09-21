@@ -3,6 +3,7 @@ package com.jeonseradar.ingest.service;
 import com.jeonseradar.deal.repository.DealUpsertDao;
 import com.jeonseradar.ingest.client.ApiType;
 import com.jeonseradar.ingest.client.MolitApiClient;
+import com.jeonseradar.ingest.entity.IngestLog;
 import com.jeonseradar.ingest.entity.IngestStatus;
 import com.jeonseradar.ingest.mapper.RentDealMapper;
 import com.jeonseradar.ingest.mapper.TradeDealMapper;
@@ -12,6 +13,7 @@ import com.jeonseradar.ingest.parser.ResultCode;
 import com.jeonseradar.ingest.repository.IngestLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -102,6 +104,17 @@ class IngestServiceTest {
     }
 
     @Test
+    void 인증키오류는_재시도하지_않는다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.INVALID_KEY, 0));
+
+        assertThatThrownBy(() -> service.ingestOne(ApiType.TRADE, "11110", "202603"))
+                .isInstanceOf(InvalidKeyException.class);
+
+        verify(client, times(1)).fetch(any(), anyString(), anyString());
+    }
+
+    @Test
     void 일시오류는_최대_3회_재시도한_뒤_FAILED로_남는다() {
         when(client.fetch(any(), anyString(), anyString()))
                 .thenReturn(response(ResultCode.ERROR, 0));
@@ -145,5 +158,86 @@ class IngestServiceTest {
 
         verify(tradeMapper, times(3)).map(any());
         verify(upsertDao, times(1)).upsertTrades(any());
+    }
+
+    @Test
+    void RENT_정상응답은_매퍼를_거쳐_upsert된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.OK, 3));
+
+        service.ingestOne(ApiType.RENT, "11110", "202603");
+
+        verify(rentMapper, times(3)).map(any());
+        verify(upsertDao, times(1)).upsertRents(any());
+    }
+
+    // ingest_log는 다음 날 실행이 "무엇이 아직 안 됐는지" 판단하는 유일한 근거다.
+    // save()가 호출되지 않거나 잘못된 status로 저장되면 재시도 큐가 조용히 고장난다 —
+    // 아래 다섯 테스트는 각 결과 경로에서 save()가 호출되고, 기록된 status가
+    // 실제 결과와 일치하는지를 직접 확인한다.
+
+    @Test
+    void SUCCESS_경로에서_ingest_log가_저장된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.OK, 2));
+
+        service.ingestOne(ApiType.TRADE, "11110", "202603");
+
+        ArgumentCaptor<IngestLog> captor = ArgumentCaptor.forClass(IngestLog.class);
+        verify(logRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(IngestStatus.SUCCESS);
+        assertThat(captor.getValue().getRowCount()).isEqualTo(2);
+    }
+
+    @Test
+    void NODATA_경로에서_ingest_log가_SUCCESS로_저장된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.NODATA, 0));
+
+        service.ingestOne(ApiType.TRADE, "11110", "202603");
+
+        ArgumentCaptor<IngestLog> captor = ArgumentCaptor.forClass(IngestLog.class);
+        verify(logRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(IngestStatus.SUCCESS);
+        assertThat(captor.getValue().getRowCount()).isZero();
+    }
+
+    @Test
+    void 일시오류_경로에서_ingest_log가_FAILED로_저장된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.ERROR, 0));
+
+        service.ingestOne(ApiType.TRADE, "11110", "202603");
+
+        ArgumentCaptor<IngestLog> captor = ArgumentCaptor.forClass(IngestLog.class);
+        verify(logRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(IngestStatus.FAILED);
+        assertThat(captor.getValue().getRowCount()).isZero();
+    }
+
+    @Test
+    void 쿼터초과_경로에서_ingest_log가_PENDING으로_저장된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.QUOTA_EXCEEDED, 0));
+
+        assertThatThrownBy(() -> service.ingestOne(ApiType.TRADE, "11110", "202603"))
+                .isInstanceOf(QuotaExceededException.class);
+
+        ArgumentCaptor<IngestLog> captor = ArgumentCaptor.forClass(IngestLog.class);
+        verify(logRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(IngestStatus.PENDING);
+    }
+
+    @Test
+    void 인증키오류_경로에서_ingest_log가_FAILED로_저장된다() {
+        when(client.fetch(any(), anyString(), anyString()))
+                .thenReturn(response(ResultCode.INVALID_KEY, 0));
+
+        assertThatThrownBy(() -> service.ingestOne(ApiType.TRADE, "11110", "202603"))
+                .isInstanceOf(InvalidKeyException.class);
+
+        ArgumentCaptor<IngestLog> captor = ArgumentCaptor.forClass(IngestLog.class);
+        verify(logRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(IngestStatus.FAILED);
     }
 }
