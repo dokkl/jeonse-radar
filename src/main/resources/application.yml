@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: jeonse-radar
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:jeonse}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&rewriteBatchedStatements=true
+    username: ${DB_USERNAME:jeonse}
+    password: ${DB_PASSWORD:jeonse}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          batch_size: 500
+        order_inserts: true
+    open-in-view: false
+
+molit:
+  base-url: https://apis.data.go.kr/1613000
+  service-key: ${MOLIT_SERVICE_KEY:}
+  rows-per-page: 1000
+  delay-ms: 120
+  max-retries: 3

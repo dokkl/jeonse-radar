@@ -1,0 +1,10 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+molit:
+  base-url: http://localhost:1
+  service-key: test-key
+  rows-per-page: 1000
+  delay-ms: 0
+  max-retries: 3
