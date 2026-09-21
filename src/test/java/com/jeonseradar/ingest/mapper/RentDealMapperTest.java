@@ -139,4 +139,21 @@ class RentDealMapperTest {
 
         assertThat(deal.getPrevDeposit()).isEqualTo(450_000_000L);
     }
+
+    @Test
+    void aptSeq를_보존한다() {
+        RentDeal deal = mapper.map(item());
+
+        assertThat(deal.getAptSeq()).isEqualTo("11110-2519");
+    }
+
+    @Test
+    void complexId는_aptSeq로_조회한_ComplexResolver_결과다() {
+        when(resolver.resolve("11110", "11110-2519", "무악동", "89", "경희궁롯데캐슬", 2019))
+                .thenReturn(42L);
+
+        RentDeal deal = mapper.map(item());
+
+        assertThat(deal.getComplexId()).isEqualTo(42L);
+    }
 }
