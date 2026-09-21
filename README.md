@@ -1,0 +1,216 @@
+# 전세 만기·역전세 레이더
+
+국토교통부 실거래가 공공데이터로 **아파트 단지별 전세 만기 도래 물량과 역전세 규모를 예측**하는 서비스.
+
+만기가 언제 돌아오는지, 그때 집주인이 얼마를 메워야 하는지를 단지 단위로 계산한다.
+부수적으로 매매 신고가의 등기·해제 여부를 사실 그대로 공개한다.
+
+- 설계 문서: [docs/superpowers/specs/2026-09-21-jeonse-maturity-radar-design.md](docs/superpowers/specs/2026-09-21-jeonse-maturity-radar-design.md)
+- 1단계 구현 계획: [docs/superpowers/plans/2026-09-21-phase1-ingest-pipeline.md](docs/superpowers/plans/2026-09-21-phase1-ingest-pipeline.md)
+
+---
+
+## 지금 어디까지 되어 있나
+
+전체 4단계 중 **1단계(수집 파이프라인)를 진행 중**이다.
+
+| 단계 | 내용 | 상태 |
+|------|------|------|
+| 1 | 수집 파이프라인 — 실거래가 원본 적재 | **진행 중** (11개 태스크 중 9개 완료) |
+| 2 | 지표 집계 — 만기 예측, 역전세 갭 | 미착수 |
+| 3 | 공개 페이지 — 단지·지역 (Thymeleaf SSR) | 미착수 |
+| 4 | 이메일 구독과 주간 다이제스트 | 미착수 |
+
+### 1단계 안에서 동작하는 것 / 아직 없는 것
+
+**동작한다** — 단위·통합 테스트로 검증됨 (100개 테스트)
+
+- 국토교통부 API 호출과 XML 응답 파싱, 페이지 순회
+- `resultCode` 판정 (정상 / NODATA / 쿼터 초과 / 인증키 오류 / 일시 장애)
+- 금액·면적·지번·날짜 변환, 계약기간 파싱
+- `aptSeq` 기준 단지 정규화
+- `deal_hash` 기반 멱등 upsert
+- 단건 수집 오케스트레이션과 `ingest_log` 기록
+
+**아직 없다** — 10번 태스크 범위
+
+- 전국 시군구 목록 (`sigungu.csv`)
+- 백필·증분 대상 생성기, 배치 러너, 스케줄러
+- 따라서 **지금은 "전국을 한 번에 긁는" 실행 진입점이 없다.** 아래 "실행" 절 참고.
+
+---
+
+## 준비물
+
+| 항목 | 버전 | 비고 |
+|------|------|------|
+| JDK | 21 | |
+| Docker | 실행 중이어야 함 | 테스트가 Testcontainers로 MySQL을 띄운다 |
+| MySQL | 8.0 | 애플리케이션 실행 시에만 필요. 테스트는 Testcontainers가 대신함 |
+| 공공데이터포털 서비스키 | — | 아래 참조 |
+
+Gradle은 별도 설치가 필요 없다 — 저장소에 wrapper(`./gradlew`)가 포함되어 있다.
+
+### 서비스키 발급
+
+공공데이터포털에서 아래 두 API를 각각 신청한다. 둘 다 **자동승인**이며 보통 1~2시간 내 활성화된다.
+
+- [국토교통부_아파트 매매 실거래가 자료](https://www.data.go.kr/data/15126469/openapi.do)
+- [국토교통부_아파트 전월세 실거래가 자료](https://www.data.go.kr/data/15126474/openapi.do)
+
+두 API는 **같은 서비스키를 공유**한다. 이용허락범위에 제한이 없어 상업적 이용이 가능하다.
+
+발급받은 키(디코딩된 형태)를 저장소 루트의 `.env.local`에 둔다. 이 파일은 `.gitignore`에 등록되어 있다.
+
+```
+MOLIT_SERVICE_KEY=발급받은_키
+```
+
+> **키를 커밋하지 않는다.** `.env.local` 외의 파일에 키를 적지 말 것.
+
+---
+
+## 설정
+
+`src/main/resources/application.yml`. 모든 값은 환경변수로 덮어쓸 수 있다.
+
+### 데이터베이스
+
+| 환경변수 | 기본값 |
+|----------|--------|
+| `DB_HOST` | `localhost` |
+| `DB_PORT` | `3306` |
+| `DB_NAME` | `jeonse` |
+| `DB_USERNAME` | `jeonse` |
+| `DB_PASSWORD` | `jeonse` |
+
+스키마는 `ddl-auto: update`로 자동 생성된다.
+
+### API 호출
+
+| 키 | 기본값 | 의미 |
+|----|--------|------|
+| `molit.base-url` | `https://apis.data.go.kr/1613000` | |
+| `molit.service-key` | `${MOLIT_SERVICE_KEY:}` | 비어 있으면 호출이 인증 오류로 실패한다 |
+| `molit.rows-per-page` | `1000` | 페이지당 건수 |
+| `molit.delay-ms` | `120` | 페이지 간 대기 |
+| `molit.max-retries` | `3` | 일시 장애 재시도 횟수 |
+
+**일일 트래픽 한도는 개발계정 기준 10,000건**이다. 운영계정으로 전환하면 확대 가능하다.
+
+---
+
+## 실행
+
+### 테스트
+
+```bash
+./gradlew test
+```
+
+Docker가 떠 있어야 한다. 첫 실행은 `mysql:8.0` 이미지를 받느라 몇 분 걸린다.
+
+**테스트는 네트워크를 타지 않는다.** 실제 API 응답을 캡처한 픽스처(`src/test/resources/fixtures/molit/`)를 쓰고, 테스트 프로필의 `molit.base-url`은 일부러 도달 불가능한 주소로 두어 실수로 외부 호출을 하는 테스트가 있으면 즉시 실패하게 했다.
+
+특정 테스트만 돌리려면:
+
+```bash
+./gradlew test --tests '*ContractTermParserTest'
+```
+
+### 애플리케이션
+
+```bash
+./gradlew bootRun
+```
+
+MySQL이 떠 있어야 하고 `MOLIT_SERVICE_KEY`가 설정되어 있어야 한다.
+
+> **주의:** 현재는 스케줄러와 백필 진입점이 없으므로(10번 태스크 미완료), 애플리케이션을 띄워도
+> 스스로 데이터를 수집하지 않는다. 컨텍스트가 뜨고 스키마가 생성될 뿐이다.
+> 수집을 돌리려면 10번 태스크가 필요하다.
+
+### Docker 문제가 생기면
+
+이 머신에서는 Docker Engine 29.x와 Testcontainers 1.20.4의 API 협상 비호환이 있었다.
+`src/test/resources/docker-java.properties.example`을 같은 디렉터리에 `docker-java.properties`로
+복사하면 우회된다. 이 파일은 머신별 설정이라 `.gitignore`에 등록되어 있고 커밋하지 않는다.
+
+---
+
+## 데이터 모델
+
+| 테이블 | 내용 |
+|--------|------|
+| `complex` | 단지 마스터. `(region_code, apt_seq)`가 유니크 키 |
+| `trade_deal` | 매매 실거래 원본 |
+| `rent_deal` | 전월세 실거래 원본 |
+| `ingest_log` | 수집 상태. `(api_type, region_code, deal_ym)`별 성공/실패 |
+
+집계 테이블은 2단계 범위이며 아직 없다.
+
+### 알아둘 설계 결정 세 가지
+
+**단지 식별은 지번이 아니라 `aptSeq`다.** 실측(전월세 17,532건) 결과 한 지번에 서로 다른
+단지가 2개 이상 들어있는 경우가 43건 있었다(예: 강남구 개포동 12번지 → `11680-279`, `11680-280`).
+지번으로 묶으면 서로 다른 단지가 합쳐진다. `aptSeq`는 채움률 100%이고 한 값이 여러 지번에
+걸치거나 이름이 흔들리는 사례가 0건이다.
+
+**`deal_hash`는 불변 필드로만 만든다.** API가 거래 고유 ID를 주지 않아 SHA-256 자연키 해시로
+거래를 식별한다. `등기일자`와 `해제여부`는 신고 이후에 값이 바뀌므로 해시에 넣으면 같은 거래가
+값이 바뀔 때마다 새 행으로 쌓인다. 해시 구성은 골든값 테스트로 고정되어 있으며,
+**백필을 한 번 돌린 뒤에 바꾸면 적재된 데이터 전부가 고아가 된다.**
+
+**금액은 원 단위 `BIGINT`로 저장한다.** API는 만원 단위 문자열(`230,000`)로 준다.
+변환을 빠뜨리면 10,000배 오류인데 예외도 경고도 없이 저장되고 화면에 렌더링된다.
+
+---
+
+## API 동작에서 알아둘 점
+
+실제 호출로 확인한 사항들이다. 코드가 이 전제 위에 서 있다.
+
+**인증 오류와 쿼터 초과는 HTTP 403으로 온다.** 200이 아니다. 진짜 원인은 본문의
+`<cmmMsgHeader><returnReasonCode>`에 있다. 그래서 클라이언트는 HTTP 상태로 아무것도 판단하지
+않고 본문의 `resultCode`만 본다 — `MolitApiClient`의 `onStatus` 핸들러가 그 역할이며 지우면 안 된다.
+
+**NODATA(`03`)는 실패가 아니다.** 거래가 없는 군 지역은 대부분의 달에 빈 응답이 정상이다.
+실패로 기록하면 재시도 큐가 영원히 비워지지 않는다.
+
+**쿼터 초과(`22`)는 재시도하지 않는다.** 이미 소진된 쿼터를 다시 때리면 다음 날 할당량까지
+태운다. 예외로 전파해 당일 배치를 멈추고 남은 대상을 `PENDING`으로 남긴다.
+
+**값이 없는 필드는 빈 문자열이 아니라 공백 한 칸(`" "`)으로 온다.** `계약기간`, `갱신요구권사용`,
+`해제여부`, `종전계약보증금` 등. 파서가 trim하므로 이후 단계에서는 `""`로 보인다.
+
+**`계약기간` 형식은 `YY.MM~YY.MM`이다** (예: `25.05~27.05`). 문서에서 흔히 보이는
+`YYYYMM~YYYYMM`은 실측 18,287건 중 0건이었다. 시작월 없이 종료월만 오는 `~26.03` 형태도 0.4% 있다.
+
+---
+
+## 프로젝트 구조
+
+```
+src/main/java/com/jeonseradar/
+├── ingest/
+│   ├── client/      MolitApiClient, ApiType, MolitProperties
+│   ├── parser/      MolitResponseParser, ResultCode, FieldConverter, MolitFields
+│   ├── mapper/      TradeDealMapper, RentDealMapper
+│   ├── entity/      IngestLog, IngestStatus
+│   ├── repository/  IngestLogRepository
+│   └── service/     IngestService, QuotaExceededException, InvalidKeyException
+└── deal/
+    ├── entity/      Complex, TradeDeal, RentDeal
+    ├── repository/  DealUpsertDao, ComplexRepository, TradeDealRepository, RentDealRepository
+    └── service/     DealHasher, ContractTermParser, ComplexResolver, SlugGenerator
+```
+
+---
+
+## 개발 규칙
+
+- **TDD** — 실패하는 테스트를 먼저 쓰고, 실패를 확인한 뒤 구현한다.
+- **네트워크를 타는 테스트를 만들지 않는다.** 픽스처만 쓴다.
+- **픽스처는 실제 API 응답이다.** 테스트가 실패하면 구현이 틀린 것이지 픽스처를 고칠 일이 아니다.
+- **공공데이터만 쓴다.** 상업적 이용이 가능한 것은 공공데이터뿐이다. 크롤링 데이터는 넣지 않는다.
+- 커밋 메시지는 한국어 한 줄 요약 + Conventional Commits 접두사.
