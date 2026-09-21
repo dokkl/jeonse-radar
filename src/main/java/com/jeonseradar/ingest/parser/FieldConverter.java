@@ -14,16 +14,38 @@ public final class FieldConverter {
     private FieldConverter() {
     }
 
-    /** API 금액은 만원 단위 + 콤마 + 좌측 공백으로 온다. 원 단위 long으로 변환한다. */
+    /**
+     * API 금액은 만원 단위 + 콤마 + 좌측 공백으로 온다. 원 단위 long으로 변환한다.
+     *
+     * 계약: 만원 단위의 숫자(정수 또는 소수)를 입력받아 원 단위로 정확히 변환한다.
+     * - "230,000" → 2,300,000,000원
+     * - "230.5" → 2,305,000원 (소수 만원도 정확 변환)
+     * - "100.55" → 1,005,500원 (HALF_UP 반올림)
+     * - null/공백 → 0원
+     * - 유효하지 않은 숫자 → 0원
+     *
+     * @param raw 만원 단위 문자열 (콤마/공백 포함 가능, 소수점 가능)
+     * @return 원 단위 long 값
+     */
     public static long toWon(String raw) {
         if (raw == null || raw.isBlank()) {
             return 0L;
         }
-        String digits = raw.replaceAll("[^0-9-]", "");
-        if (digits.isEmpty() || digits.equals("-")) {
+        try {
+            // 공백과 콤마만 제거하고 소수점은 유지하여 정확한 변환
+            String cleaned = raw.trim().replaceAll("[\\s,]", "");
+            if (cleaned.isEmpty()) {
+                return 0L;
+            }
+            // BigDecimal로 파싱하여 소수 만원도 정확히 처리
+            BigDecimal manWon = new BigDecimal(cleaned);
+            // 만원 -> 원 변환 (곱하기 10,000) 후 long으로 반올림
+            return manWon.multiply(BigDecimal.valueOf(MAN_WON))
+                         .setScale(0, RoundingMode.HALF_UP)
+                         .longValue();
+        } catch (NumberFormatException e) {
             return 0L;
         }
-        return Long.parseLong(digits) * MAN_WON;
     }
 
     public static BigDecimal toArea(String raw) {

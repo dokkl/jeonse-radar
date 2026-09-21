@@ -25,6 +25,14 @@ class FieldConverterTest {
     }
 
     @Test
+    void 소수점_금액은_정확히_변환한다() {
+        // 소수 만원도 정확하게 변환: 230.5만원 = 2,305,000원 (NOT 23,050,000원)
+        assertThat(FieldConverter.toWon("230.5")).isEqualTo(2_305_000L);
+        // 반올림 경계: 100.55 -> 1,005,500원 (HALF_UP)
+        assertThat(FieldConverter.toWon("100.55")).isEqualTo(1_005_500L);
+    }
+
+    @Test
     void 전용면적은_소수점_둘째자리까지_보존한다() {
         assertThat(FieldConverter.toArea("84.97")).isEqualByComparingTo(new BigDecimal("84.97"));
         assertThat(FieldConverter.toArea(" 59.9 ")).isEqualByComparingTo(new BigDecimal("59.90"));
@@ -33,7 +41,13 @@ class FieldConverterTest {
     @Test
     void 실제응답의_소수점_넷째자리_면적을_둘째자리로_반올림한다() {
         // 실측: excluUseAr = "59.8547" 처럼 4자리로 온다
+        // 3번째 자리가 4인 경우 (내림): 59.8547 -> 59.85
         assertThat(FieldConverter.toArea("59.8547")).isEqualByComparingTo(new BigDecimal("59.85"));
+        // 3번째 자리가 5인 경우 (올림, HALF_UP 검증): 59.855 -> 59.86
+        assertThat(FieldConverter.toArea("59.855")).isEqualByComparingTo(new BigDecimal("59.86"));
+        // 3번째 자리가 5인 경우 (올림, HALF_UP 검증): 79.875 -> 79.88
+        assertThat(FieldConverter.toArea("79.875")).isEqualByComparingTo(new BigDecimal("79.88"));
+        // 정확한 2자리 소수점 (변경 없음): 79.87 -> 79.87
         assertThat(FieldConverter.toArea("79.87")).isEqualByComparingTo(new BigDecimal("79.87"));
     }
 
