@@ -97,14 +97,15 @@ com.jeonseradar.web
 └── region/
     ├── RegionPageQuery.java
     ├── RegionPage.java
-    ├── SidoIndexPage.java
     └── RegionPageController.java
 
 com.jeonseradar.region
 └── RegionName.java                 시도/시군구 분해와 URL 세그먼트 (신규, region 패키지)
 
+src/main/resources/static/
+└── style.css                       공통 스타일 (템플릿이 link로 건다)
+
 src/main/resources/templates/
-├── layout.html                     공통 레이아웃 (robots 메타 슬롯)
 ├── complex.html
 ├── region.html
 ├── sido.html
@@ -120,7 +121,7 @@ src/main/resources/templates/
 - Create: `src/main/java/com/jeonseradar/web/PublishedSnapshot.java`
 - Create: `src/main/java/com/jeonseradar/web/SnapshotUnavailableException.java`
 - Create: `src/main/java/com/jeonseradar/web/WebExceptionHandler.java`
-- Create: `src/main/resources/templates/layout.html`
+- Create: `src/main/resources/static/style.css`
 - Create: `src/main/resources/templates/error/unavailable.html`
 - Test: `src/test/java/com/jeonseradar/web/PublishedSnapshotTest.java`
 
@@ -297,7 +298,7 @@ public class PublishedSnapshot {
 }
 ```
 
-- [ ] **Step 5: 503 처리와 레이아웃 작성**
+- [ ] **Step 5: 503 처리와 공통 스타일 작성**
 
 `src/main/java/com/jeonseradar/web/WebExceptionHandler.java`:
 
@@ -328,43 +329,39 @@ public class WebExceptionHandler {
 }
 ```
 
-`src/main/resources/templates/layout.html`:
+`src/main/resources/static/style.css`:
 
-```html
-<!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="ko"
-      th:fragment="page(title, robots, content)">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title th:text="${title}">전세 레이더</title>
-  <meta name="robots" th:attr="content=${robots}" th:if="${robots != null}">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-           margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
-    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-    th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: right; }
-    th:first-child, td:first-child { text-align: left; }
-    th { font-weight: 600; background: #fafafa; }
-    .conf { font-size: 12px; padding: 2px 6px; border-radius: 3px; }
-    .conf-HIGH { background: #e6f4ea; color: #1e7e34; }
-    .conf-MEDIUM { background: #fff4e5; color: #b26a00; }
-    .conf-LOW { background: #f1f1f1; color: #666; }
-    .gap-pos { color: #c0392b; }
-    .gap-neg { color: #1e7e34; }
-    .muted { color: #666; font-size: 14px; }
-    h1 { font-size: 24px; margin: 8px 0; }
-    h2 { font-size: 18px; margin: 32px 0 8px; }
-  </style>
-</head>
-<body>
-<div class="wrap">
-  <div th:replace="${content}">내용</div>
-</div>
-</body>
-</html>
+```css
+/* 전세 레이더 공통 스타일. 템플릿마다 복사하지 않고 이 파일 하나를 건다 (원장 C-2). */
+body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+       margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; background: #fafafa; }
+.conf { font-size: 12px; padding: 2px 6px; border-radius: 3px; }
+.conf-HIGH { background: #e6f4ea; color: #1e7e34; }
+.conf-MEDIUM { background: #fff4e5; color: #b26a00; }
+.conf-LOW { background: #f1f1f1; color: #666; }
+.gap-pos { color: #c0392b; font-weight: 600; }
+.gap-neg { color: #1e7e34; }
+.muted { color: #666; font-size: 14px; }
+.cards { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+.card { border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px 16px; min-width: 140px; }
+.card b { display: block; font-size: 22px; }
+ul.sigungu { columns: 3; list-style: none; padding: 0; }
+ul.sigungu li { padding: 4px 0; break-inside: avoid; }
+a { color: #1a5fb4; }
+h1 { font-size: 24px; margin: 8px 0; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
+@media (max-width: 600px) {
+  ul.sigungu { columns: 2; }
+  table { font-size: 14px; }
+}
 ```
+
+템플릿마다 `<style>` 블록을 복사하는 대신 이 파일 하나를 `<link>`로 건다. 3단계의 모든 템플릿이 같은 표·신뢰도 배지·카드를 쓰므로, 복사하면 세 벌이 되고 한 벌만 고치는 사고가 난다 (원장 C-2).
 
 `src/main/resources/templates/error/unavailable.html`:
 
@@ -392,7 +389,7 @@ Expected: PASS (6개)
 
 ```bash
 ./gradlew test --rerun-tasks
-git add build.gradle src/main/java/com/jeonseradar/web src/main/resources/templates src/test/java/com/jeonseradar/web
+git add build.gradle src/main/java/com/jeonseradar/web src/main/resources/templates src/main/resources/static src/test/java/com/jeonseradar/web
 git commit -m "feat: Thymeleaf 설정과 발행 스냅샷 관문 추가"
 ```
 
@@ -1126,24 +1123,7 @@ public class ComplexPageController {
   <title th:text="${page.title()}">단지</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
   <link rel="canonical" th:href="${page.path()}">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-           margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: right; }
-    th:first-child, td:first-child { text-align: left; }
-    th { font-weight: 600; background: #fafafa; }
-    .conf { font-size: 12px; padding: 2px 6px; border-radius: 3px; }
-    .conf-HIGH { background: #e6f4ea; color: #1e7e34; }
-    .conf-MEDIUM { background: #fff4e5; color: #b26a00; }
-    .conf-LOW { background: #f1f1f1; color: #666; }
-    .gap-pos { color: #c0392b; font-weight: 600; }
-    .gap-neg { color: #1e7e34; }
-    .muted { color: #666; font-size: 14px; }
-    h1 { font-size: 24px; margin: 8px 0; }
-    h2 { font-size: 18px; margin: 32px 0 8px; }
-  </style>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="wrap">
@@ -1867,27 +1847,7 @@ public class RegionPageController {
   <title th:text="${page.title()}">지역</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
   <link rel="canonical" th:href="${page.path()}">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-           margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: right; }
-    th:first-child, td:first-child { text-align: left; }
-    th { font-weight: 600; background: #fafafa; }
-    .conf { font-size: 12px; padding: 2px 6px; border-radius: 3px; }
-    .conf-HIGH { background: #e6f4ea; color: #1e7e34; }
-    .conf-MEDIUM { background: #fff4e5; color: #b26a00; }
-    .conf-LOW { background: #f1f1f1; color: #666; }
-    .gap-pos { color: #c0392b; font-weight: 600; }
-    .muted { color: #666; font-size: 14px; }
-    .cards { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
-    .card { border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px 16px; min-width: 140px; }
-    .card b { display: block; font-size: 22px; }
-    a { color: #1a5fb4; }
-    h1 { font-size: 24px; margin: 8px 0; }
-    h2 { font-size: 18px; margin: 32px 0 8px; }
-  </style>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="wrap">
@@ -1947,20 +1907,12 @@ public class RegionPageController {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${sido} + ' 역전세 현황'">시도</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-           margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
-    ul { columns: 3; list-style: none; padding: 0; }
-    li { padding: 4px 0; break-inside: avoid; }
-    a { color: #1a5fb4; }
-    h1 { font-size: 24px; margin: 8px 0; }
-  </style>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="wrap">
   <h1 th:text="${sido} + ' 전세 만기·역전세 현황'">시도</h1>
-  <ul>
+  <ul class="sigungu">
     <li th:each="r : ${regions}">
       <a th:href="'/역전세/' + ${r.sidoSegment()} + '/' + ${r.sigunguSegment()}"
          th:text="${r.displayName()}">시군구</a>
@@ -2033,6 +1985,7 @@ class SitemapControllerTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired MetricSnapshotRepository snapshots;
+    @Autowired com.jeonseradar.web.complex.ComplexPageQuery complexPageQuery;
 
     @BeforeEach
     void clean() {
@@ -2093,6 +2046,33 @@ class SitemapControllerTest {
         mvc.perform(get("/sitemap.xml"))
                 .andExpect(content().string(containsString("/%EC%97%AD%EC%A0%84%EC%84%B8/")
                         .or(containsString("/역전세/"))));
+    }
+
+    @Test
+    void sitemap_수록_여부가_단지_페이지의_색인_판정과_일치한다() throws Exception {
+        // 색인 규칙이 Java(ComplexPageQuery.indexable)와 SQL(여기) 두 곳에 있다 (원장 C-1).
+        // 집합 질의가 필요해 SQL을 없앨 수는 없으므로, 둘이 갈라지지 않는지를 대조로 고정한다.
+        // 갈라지면 noindex인 페이지를 sitemap이 제출하는 모순이 생긴다.
+        complexWith(1, "헬리오시티", "HIGH");     // 색인 대상
+        complexWith(2, "리센츠", "MEDIUM");       // 색인 대상
+        complexWith(3, "파크리오", "LOW");        // 신뢰도 미달
+        complexWith(4, "(828-76)", "HIGH");       // 지번뿐인 이름
+        jdbc.update("""
+                INSERT INTO complex (id, apt_seq, region_code, legal_dong, jibun,
+                                     display_name, slug, build_year)
+                VALUES (5, '11710-5', '11710', '잠실동', '40', '시세없음', 'c5-11710-1', 2018)
+                """);                            // 시세 자체가 없음
+
+        String xml = mvc.perform(get("/sitemap.xml")).andReturn()
+                .getResponse().getContentAsString();
+
+        for (long id = 1; id <= 5; id++) {
+            boolean inSitemap = xml.contains("/c" + id + "-11710-1");
+            boolean indexable = complexPageQuery.find(id).orElseThrow().indexable();
+            org.assertj.core.api.Assertions.assertThat(inSitemap)
+                    .as("단지 %d — sitemap 수록과 indexable()이 달라졌다", id)
+                    .isEqualTo(indexable);
+        }
     }
 
     @Test
@@ -2217,7 +2197,7 @@ jeonse:
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `./gradlew test --tests '*SitemapControllerTest'`
-Expected: PASS (5개)
+Expected: PASS (6개)
 
 - [ ] **Step 5: 전체 스위트와 커밋**
 
