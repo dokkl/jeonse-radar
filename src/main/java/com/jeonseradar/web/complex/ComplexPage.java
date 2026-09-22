@@ -1,5 +1,8 @@
 package com.jeonseradar.web.complex;
 
+import org.springframework.web.util.UriUtils;
+
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -28,9 +31,18 @@ public record ComplexPage(
             long medianDepositThen, long currentMedianDeposit,
             long gapAmount, double gapRate, int renewalExhaustedCount, String confidence) {}
 
-    /** `/단지/{id}-{slug}` */
+    /**
+     * `/단지/{id}-{slug}`.
+     * <p>퍼센트 인코딩하는 이유(레저 P3-3): HTTP 헤더는 ISO-8859-1이라 한글을 그대로
+     * {@code Location} 헤더에 실으면 Tomcat이 "invalid header"로 판단해 헤더째로
+     * 제거해 버려 301만 남고 목적지가 사라진다. 호출부(리다이렉트)에서 매번 인코딩하는
+     * 대신 값을 만드는 이곳에서 한 번에 인코딩해 둔다 — 이 값은 canonical 링크와
+     * (추후) sitemap.xml에도 그대로 쓰이는데, 세 군데 모두 퍼센트 인코딩된 경로가 맞기
+     * 때문이다. "단순화"한답시고 인코딩을 걷어내면 이 버그가 그대로 재발한다.
+     */
     public String path() {
-        return "/단지/" + id + "-" + slug;
+        String path = "/단지/" + id + "-" + slug;
+        return UriUtils.encodePath(path, StandardCharsets.UTF_8);
     }
 
     /** 스펙 §4.2: 단지명 단독으로는 대형 서비스를 이길 수 없으므로 수식어를 결합한다. */

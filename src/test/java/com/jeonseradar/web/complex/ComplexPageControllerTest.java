@@ -103,9 +103,15 @@ class ComplexPageControllerTest {
         publishSnapshot();
         complexWith("헬리오시티", "HIGH");
 
+        // 퍼센트 인코딩된 경로(레저 P3-3)가 정답이다 — "/단지/"는 항상 한글이라
+        // 실제 서버가 보낼 수 있는 Location 값은 이 형태뿐이다. MockMvc는
+        // Tomcat의 ISO-8859-1 헤더 인코딩을 거치지 않으므로 여기서는 raw 문자열도
+        // 통과해 버려서 버그를 못 잡는다 — 그래서 실제 서버로 검증하는
+        // ComplexPageRedirectEncodingTest가 따로 있다. 이 기대값을 보기 흉하다고
+        // 원래의 raw 한글 문자열로 되돌리면 P3-3 버그가 그대로 재발한다.
         mvc.perform(get("/단지/1-옛날slug"))
                 .andExpect(status().isMovedPermanently())
-                .andExpect(redirectedUrl("/단지/1-helio-11710-1"));
+                .andExpect(redirectedUrl("/%EB%8B%A8%EC%A7%80/1-helio-11710-1"));
     }
 
     @Test
