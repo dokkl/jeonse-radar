@@ -34,14 +34,14 @@ public class RentStatBuilder {
     @Transactional
     public int build(LocalDate snapshotDate, LocalDate asOf) {
         LocalDate windowStart = asOf.minusMonths(WINDOW_MONTHS);
-        int inserted = insertL1(snapshotDate, windowStart);
-        inserted += insertL2(snapshotDate, windowStart);
-        inserted += insertL3(snapshotDate, windowStart);
+        int inserted = insertL1(snapshotDate, windowStart, asOf);
+        inserted += insertL2(snapshotDate, windowStart, asOf);
+        inserted += insertL3(snapshotDate, windowStart, asOf);
         return inserted;
     }
 
     /** L1: 같은 단지·평형의 최근 6개월 보증금 중위값. */
-    private int insertL1(LocalDate snapshotDate, LocalDate windowStart) {
+    private int insertL1(LocalDate snapshotDate, LocalDate windowStart, LocalDate asOf) {
         String sql = """
                 INSERT INTO complex_rent_stat
                   (snapshot_date, complex_id, area_bucket, median_deposit, sample_count,
@@ -51,7 +51,7 @@ public class RentStatBuilder {
                          ROW_NUMBER() OVER (PARTITION BY complex_id, area_bucket ORDER BY deposit) rn,
                          COUNT(*)     OVER (PARTITION BY complex_id, area_bucket)                  cnt
                   FROM rent_deal
-                  WHERE monthly_rent = 0 AND deal_date >= ?
+                  WHERE monthly_rent = 0 AND deal_date >= ? AND deal_date <= ?
                 )
                 SELECT ?, complex_id, area_bucket,
                        CAST(AVG(deposit) AS SIGNED), MAX(cnt), 'L1',
@@ -62,7 +62,7 @@ public class RentStatBuilder {
                 WHERE %s
                 GROUP BY complex_id, area_bucket
                 """.formatted(MedianSql.MIDDLE_ROWS);
-        return jdbcTemplate.update(sql, windowStart, snapshotDate);
+        return jdbcTemplate.update(sql, windowStart, asOf, snapshotDate);
     }
 
     /**
@@ -71,7 +71,7 @@ public class RentStatBuilder {
      * 같은 단지라도 평형이 다르면 절대 금액이 다르므로, 단가로 환산해야 빌려 쓸 수 있다.
      * L2는 상한이 MEDIUM이라 표본이 아무리 많아도 HIGH가 되지 않는다.
      */
-    private int insertL2(LocalDate snapshotDate, LocalDate windowStart) {
+    private int insertL2(LocalDate snapshotDate, LocalDate windowStart, LocalDate asOf) {
         String sql = """
                 INSERT INTO complex_rent_stat
                   (snapshot_date, complex_id, area_bucket, median_deposit, sample_count,
@@ -90,7 +90,7 @@ public class RentStatBuilder {
                          ROW_NUMBER() OVER (PARTITION BY complex_id ORDER BY deposit / area) rn,
                          COUNT(*)     OVER (PARTITION BY complex_id)                          cnt
                   FROM rent_deal
-                  WHERE monthly_rent = 0 AND deal_date >= ? AND area > 0
+                  WHERE monthly_rent = 0 AND deal_date >= ? AND deal_date <= ? AND area > 0
                 ),
                 unit AS (
                   SELECT complex_id, AVG(unit_price) AS median_unit, MAX(cnt) AS cnt
@@ -101,11 +101,11 @@ public class RentStatBuilder {
                        CASE WHEN u.cnt >= 3 THEN 'MEDIUM' ELSE 'LOW' END
                 FROM target t JOIN unit u ON u.complex_id = t.complex_id
                 """.formatted(MedianSql.MIDDLE_ROWS);
-        return jdbcTemplate.update(sql, snapshotDate, windowStart, snapshotDate);
+        return jdbcTemplate.update(sql, snapshotDate, windowStart, asOf, snapshotDate);
     }
 
     /** L3: 같은 법정동·평형. 남의 단지 시세를 빌려 쓰는 것이므로 상한이 LOW다. */
-    private int insertL3(LocalDate snapshotDate, LocalDate windowStart) {
+    private int insertL3(LocalDate snapshotDate, LocalDate windowStart, LocalDate asOf) {
         String sql = """
                 INSERT INTO complex_rent_stat
                   (snapshot_date, complex_id, area_bucket, median_deposit, sample_count,
@@ -126,7 +126,7 @@ public class RentStatBuilder {
                          COUNT(*) OVER (
                            PARTITION BY region_code, legal_dong, area_bucket)                  cnt
                   FROM rent_deal
-                  WHERE monthly_rent = 0 AND deal_date >= ?
+                  WHERE monthly_rent = 0 AND deal_date >= ? AND deal_date <= ?
                 ),
                 dong AS (
                   SELECT region_code, legal_dong, area_bucket,
@@ -141,6 +141,6 @@ public class RentStatBuilder {
                            AND d.legal_dong  = t.legal_dong
                            AND d.area_bucket = t.area_bucket
                 """.formatted(MedianSql.MIDDLE_ROWS);
-        return jdbcTemplate.update(sql, snapshotDate, windowStart, snapshotDate);
+        return jdbcTemplate.update(sql, snapshotDate, windowStart, asOf, snapshotDate);
     }
 }

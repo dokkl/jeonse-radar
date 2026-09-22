@@ -78,6 +78,18 @@ class RentStatBuilderTest {
                 complexId, areaBucket);
     }
 
+    /** 월세가 있는 계약(반전세) 한 건. 순수 전세 필터 검증용. */
+    private void mixedRent(String dealHash, long complexId, String regionCode, String legalDong,
+                           int areaBucket, long deposit, long monthlyRent, LocalDate dealDate) {
+        jdbcTemplate.update(
+                "INSERT INTO rent_deal (deal_hash, complex_id, apt_seq, region_code, legal_dong, jibun,"
+                        + " apt_name, area, area_bucket, floor, deal_date, deposit, monthly_rent,"
+                        + " term_estimated, renewal_right_used, created_at, updated_at)"
+                        + " VALUES (?,?,?,?,?, '1','단지',?,?,3,?,?,?,FALSE,FALSE,NOW(),NOW())",
+                dealHash, complexId, regionCode + "-" + complexId, regionCode, legalDong,
+                java.math.BigDecimal.valueOf(areaBucket), areaBucket, dealDate, deposit, monthlyRent);
+    }
+
     @Test
     void L1은_같은_단지_평형의_최근_6개월_중위값을_쓴다() {
         complex(1, "11680", "대치동");
@@ -132,6 +144,101 @@ class RentStatBuilderTest {
         assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L2.name());
         // ㎡당 600만원 x 85㎡ = 5.1억
         assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(510_000_000L);
+        // 단가 표본이 1건뿐이므로 Confidence.of(1, L2) = LOW
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        assertThat(stat.get("confidence")).isEqualTo(Confidence.LOW.name());
+    }
+
+    @Test
+    void L2의_confidence와_sample_count는_Confidence_of와_일치한다() {
+        // 단지별로 최근 순수 전세 표본 수를 1/3/10건으로 다르게 만들어, SQL의 CASE가
+        // Confidence.of(n, L2)와 모든 대표 표본 수에서 실제로 일치하는지 확인한다.
+        // (n=10에서는 L2 상한이 MEDIUM이므로 HIGH가 아니라 MEDIUM이어야 한다 — 상한 검증)
+        complex(20, "11680", "반포동");
+        rent(20, "11680", "반포동", 85, 900_000_000L, LocalDate.of(2025, 1, 1)); // L1 불가
+        rent(20, "11680", "반포동", 60, 360_000_000L, LocalDate.of(2026, 8, 1)); // 표본 1건
+
+        complex(21, "11680", "반포동");
+        rent(21, "11680", "반포동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));
+        for (int i = 0; i < 3; i++) {
+            rent(21, "11680", "반포동", 60, 360_000_000L, LocalDate.of(2026, 8, 1));
+        }
+
+        complex(22, "11680", "반포동");
+        rent(22, "11680", "반포동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));
+        for (int i = 0; i < 10; i++) {
+            rent(22, "11680", "반포동", 60, 360_000_000L, LocalDate.of(2026, 8, 1));
+        }
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        assertL2ConfidencePinnedToSampleCount(20, 1);
+        assertL2ConfidencePinnedToSampleCount(21, 3);
+        assertL2ConfidencePinnedToSampleCount(22, 10);
+    }
+
+    private void assertL2ConfidencePinnedToSampleCount(long complexId, int expectedSampleCount) {
+        Map<String, Object> stat = statOf(complexId, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L2.name());
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(expectedSampleCount);
+        // SQL의 CASE 식과 Confidence.of(n, L2)가 같은 값을 내는지, 하드코딩된 리터럴이 아니라
+        // 자바 쪽 규칙 자체에 견주어 확인한다.
+        assertThat(stat.get("confidence"))
+                .isEqualTo(Confidence.of(expectedSampleCount, SourceLevel.L2).name());
+    }
+
+    @Test
+    void L2에서도_월세가_있는_계약은_제외된다() {
+        complex(23, "11680", "논현동");
+        rent(23, "11680", "논현동", 85, 900_000_000L, LocalDate.of(2025, 1, 1)); // L1 불가
+        // 순수 전세: ㎡당 600만원
+        rent(23, "11680", "논현동", 60, 360_000_000L, LocalDate.of(2026, 8, 1));
+        // 반전세: ㎡당 단가가 전혀 다르다. 섞이면 단가 중위값과 표본 수가 모두 달라진다.
+        mixedRent("banjeonse-l2", 23, "11680", "논현동", 70, 70_000_000L, 500_000L,
+                LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(23, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L2.name());
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        // ㎡당 600만원 x 85㎡ = 5.1억 (반전세가 섞였다면 이 값도, 표본 수도 달라졌을 것이다)
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(510_000_000L);
+    }
+
+    @Test
+    void L3에서도_월세가_있는_계약은_제외된다() {
+        complex(24, "11680", "행당동");
+        complex(25, "11680", "행당동");
+        // 단지24의 85㎡는 오래된 거래뿐이고 다른 평형도 없어 L1·L2 모두 불가
+        rent(24, "11680", "행당동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));
+        // 같은 법정동의 다른 단지 85㎡에 순수 전세 최근 거래
+        rent(25, "11680", "행당동", 85, 550_000_000L, LocalDate.of(2026, 8, 1));
+        // 반전세: 같은 법정동·평형에 섞여 있지만 제외되어야 한다
+        mixedRent("banjeonse-l3", 25, "11680", "행당동", 85, 200_000_000L, 300_000L,
+                LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(24, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L3.name());
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(550_000_000L);
+    }
+
+    @Test
+    void asOf보다_미래_거래는_시세_산출에서_제외된다() {
+        complex(26, "11680", "상암동");
+        // AS_OF(2026-09-01) 이전 — 포함되어야 한다
+        rent(26, "11680", "상암동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        // AS_OF 이후 — 과거 시점 스냅샷을 재계산할 때 미래 데이터가 섞이면 안 된다
+        rent(26, "11680", "상암동", 85, 900_000_000L, LocalDate.of(2026, 9, 10));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(26, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(500_000_000L);
     }
 
     @Test
