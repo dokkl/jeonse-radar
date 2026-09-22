@@ -27,3 +27,9 @@ molit:
   backfill:
     rent-months: 36
     trade-months: 24
+
+jeonse:
+  ranking:
+    min-contract-count: 3
+    min-confidence: MEDIUM
+    limit: 50
