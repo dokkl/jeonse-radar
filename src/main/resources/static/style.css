@@ -1,0 +1,27 @@
+/* 전세 레이더 공통 스타일. 템플릿마다 복사하지 않고 이 파일 하나를 건다 (원장 C-2). */
+body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+       margin: 0; padding: 0 16px; line-height: 1.6; color: #1a1a1a; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 24px 0 64px; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+th, td { border-bottom: 1px solid #e5e5e5; padding: 8px 6px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; background: #fafafa; }
+.conf { font-size: 12px; padding: 2px 6px; border-radius: 3px; }
+.conf-HIGH { background: #e6f4ea; color: #1e7e34; }
+.conf-MEDIUM { background: #fff4e5; color: #b26a00; }
+.conf-LOW { background: #f1f1f1; color: #666; }
+.gap-pos { color: #c0392b; font-weight: 600; }
+.gap-neg { color: #1e7e34; }
+.muted { color: #666; font-size: 14px; }
+.cards { display: flex; gap: 16px; margin: 16px 0; flex-wrap: wrap; }
+.card { border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px 16px; min-width: 140px; }
+.card b { display: block; font-size: 22px; }
+ul.sigungu { columns: 3; list-style: none; padding: 0; }
+ul.sigungu li { padding: 4px 0; break-inside: avoid; }
+a { color: #1a5fb4; }
+h1 { font-size: 24px; margin: 8px 0; }
+h2 { font-size: 18px; margin: 32px 0 8px; }
+@media (max-width: 600px) {
+  ul.sigungu { columns: 2; }
+  table { font-size: 14px; }
+}
