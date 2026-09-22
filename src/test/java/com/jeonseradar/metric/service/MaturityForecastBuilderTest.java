@@ -93,6 +93,19 @@ class MaturityForecastBuilderTest {
     }
 
     @Test
+    void 짝수_건수_서로_다른_보증금이면_중위값은_가운데_두_값의_평균이다() {
+        currentStat(10, 85, 400_000_000L, "HIGH");
+        lease(10, 85, 400_000_000L, "202612", false, false);
+        lease(10, 85, 600_000_000L, "202612", false, false);
+
+        builder.build(SNAPSHOT, "202610");
+
+        Map<String, Object> f = forecastOf(10, 85, "202612");
+        assertThat(((Number) f.get("contract_count")).intValue()).isEqualTo(2);
+        assertThat(((Number) f.get("median_deposit_then")).longValue()).isEqualTo(500_000_000L);
+    }
+
+    @Test
     void 역전세면_갭이_양수다() {
         currentStat(2, 85, 400_000_000L, "HIGH");
         lease(2, 85, 600_000_000L, "202612", false, false);
