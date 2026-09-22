@@ -287,11 +287,6 @@ public enum Confidence {
         }
         return LOW;
     }
-
-    /** 3단계 색인 게이트: LOW는 색인하지 않는다 (스펙 §4.1). */
-    public boolean indexable() {
-        return this != LOW;
-    }
 }
 ```
 
@@ -1992,6 +1987,32 @@ class SnapshotBuilderTest {
     }
 
     @Test
+    void 빌드가_실패하면_FAILED_기록이_남는다() {
+        // 존재하지 않는 컬럼을 참조하게 만들 수는 없으므로, 시세가 없는 상태에서
+        // 만기 집계만 돌려도 예외는 나지 않는다. 대신 rent_deal에 complex_id가
+        // FK를 깨는 값을 넣어 빌드 중 예외를 유도한다.
+        jdbcTemplate.update("DROP TABLE IF EXISTS complex_rent_stat_backup");
+        jdbcTemplate.execute("RENAME TABLE complex_rent_stat TO complex_rent_stat_backup");
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> builder.build(LocalDate.now()))
+                    .isInstanceOf(RuntimeException.class);
+        } finally {
+            jdbcTemplate.execute("RENAME TABLE complex_rent_stat_backup TO complex_rent_stat");
+        }
+
+        // 핵심: 예외가 다시 던져졌어도 FAILED 기록이 살아남아야 한다.
+        // 오케스트레이터가 @Transactional이면 이 기록이 함께 롤백되어 사라진다.
+        MetricSnapshot s = snapshotRepository.findBySnapshotDate(LocalDate.now()).orElseThrow();
+        assertThat(s.getStatus()).isEqualTo(SnapshotStatus.FAILED);
+        assertThat(s.getFailureReason()).isNotBlank();
+    }
+
+    @Test
+    void 실패한_스냅샷은_조회_대상에서_빠진다() {
+        assertThat(snapshotRepository.findLatestComplete()).isEmpty();
+    }
+
+    @Test
     void 같은_날_재빌드해도_스냅샷_행이_늘지_않는다() {
         seedOneComplexWithLease();
         builder.build(LocalDate.now());
@@ -2017,7 +2038,6 @@ package com.jeonseradar.metric.repository;
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.entity.SnapshotStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDate;
 import java.util.Optional;
@@ -2029,10 +2049,14 @@ public interface MetricSnapshotRepository extends JpaRepository<MetricSnapshot, 
     /**
      * 조회 계층이 쓰는 단 하나의 진입점.
      * BUILDING이나 FAILED는 더 최신이어도 무시된다 — 반쪽짜리 집계가 화면에 새지 않게 한다.
+     *
+     * JPQL의 LIMIT은 Hibernate 버전에 따라 지원이 갈리므로 파생 쿼리로 쓴다.
      */
-    @Query("SELECT s FROM MetricSnapshot s WHERE s.status = com.jeonseradar.metric.entity.SnapshotStatus.COMPLETE "
-            + "ORDER BY s.snapshotDate DESC LIMIT 1")
-    Optional<MetricSnapshot> findLatestComplete();
+    default Optional<MetricSnapshot> findLatestComplete() {
+        return findFirstByStatusOrderBySnapshotDateDesc(SnapshotStatus.COMPLETE);
+    }
+
+    Optional<MetricSnapshot> findFirstByStatusOrderBySnapshotDateDesc(SnapshotStatus status);
 
     long countByStatus(SnapshotStatus status);
 }
@@ -2051,7 +2075,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -2090,7 +2113,20 @@ public class SnapshotBuilder {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    @Transactional
+    /**
+     * **의도적으로 @Transactional을 붙이지 않는다.** 두 가지 이유가 있다.
+     *
+     * 첫째, 실패 기록이 살아남아야 한다. 하나의 트랜잭션으로 감싸면 catch 블록의
+     * snapshot.fail() + save()가 곧바로 던지는 예외에 함께 롤백되어, 실패 원인을
+     * 남기려고 쓴 코드가 스스로를 지운다.
+     *
+     * 둘째, 전국 규모에서는 수백만 행 삽입을 한 트랜잭션이 감싸게 되어 언두 로그가
+     * 부풀고 빌드 내내 락을 쥔다.
+     *
+     * 원자성은 트랜잭션이 아니라 metric_snapshot의 status가 보장한다. 중간에 실패하면
+     * 그 snapshot_date의 행이 일부 남지만 COMPLETE가 아니므로 아무도 읽지 않고,
+     * 다음 빌드의 clearExisting이 지운다 (스펙 §1.7).
+     */
     public MetricSnapshot build(LocalDate asOf) {
         LocalDate snapshotDate = asOf;
         MetricSnapshot snapshot = snapshotRepository.findBySnapshotDate(snapshotDate)
@@ -2129,7 +2165,10 @@ public class SnapshotBuilder {
 - [ ] **Step 5: 테스트 통과 확인**
 
 Run: `./gradlew test --tests '*SnapshotBuilderTest'`
-Expected: PASS (7개 테스트)
+Expected: PASS (9개 테스트)
+
+`빌드가_실패하면_FAILED_기록이_남는다`가 실패하면 `SnapshotBuilder.build()`에
+`@Transactional`이 붙어 있는지부터 확인한다. 붙어 있으면 실패 기록이 함께 롤백된다.
 
 - [ ] **Step 6: 커밋**
 
