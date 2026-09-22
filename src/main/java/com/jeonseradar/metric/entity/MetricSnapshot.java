@@ -51,6 +51,22 @@ public class MetricSnapshot {
         return s;
     }
 
+    /**
+     * 이미 존재하는 스냅샷(주로 같은 날 재빌드)을 다시 BUILDING으로 되돌린다.
+     *
+     * 재빌드 시작 시점에 이 값을 커밋해 두지 않으면, clearExisting이 집계 테이블을
+     * 지우는 동안에도 metric_snapshot은 여전히 COMPLETE로 남아 있어 조회 계층이
+     * 방금 비워진 테이블을 COMPLETE라고 믿고 읽게 된다 (원장 F-33).
+     *
+     * 이전 실패의 흔적(failureReason)이 이번에 성공해도 남아 있으면 안 되므로 같이 지운다.
+     */
+    public void restart() {
+        this.status = SnapshotStatus.BUILDING;
+        this.startedAt = LocalDateTime.now();
+        this.completedAt = null;
+        this.failureReason = null;
+    }
+
     public void complete(int rentStatRows, int maturityRows, int dealFlagRows) {
         this.status = SnapshotStatus.COMPLETE;
         this.rentStatRows = rentStatRows;

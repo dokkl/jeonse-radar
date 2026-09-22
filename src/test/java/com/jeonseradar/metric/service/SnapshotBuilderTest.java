@@ -16,6 +16,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -148,9 +149,10 @@ class SnapshotBuilderTest {
 
     @Test
     void 빌드가_실패하면_FAILED_기록이_남는다() {
-        // 존재하지 않는 컬럼을 참조하게 만들 수는 없으므로, 시세가 없는 상태에서
-        // 만기 집계만 돌려도 예외는 나지 않는다. 대신 rent_deal에 complex_id가
-        // FK를 깨는 값을 넣어 빌드 중 예외를 유도한다.
+        // complex_rent_stat 테이블을 통째로 이름 바꿔 없애서 clearExisting(정리 단계)의
+        // DELETE가 예외를 던지게 만든다. 이 테스트는 SnapshotBuilder.build()에서
+        // clearExisting()이 try 블록 "안"에 있어야 한다는 것의 유일한 회귀 방지선이다 —
+        // 나중에 누군가 "더 간단하게" 정리 단계를 try 밖으로 옮기면 이 테스트가 깨진다.
         jdbcTemplate.update("DROP TABLE IF EXISTS complex_rent_stat_backup");
         jdbcTemplate.execute("RENAME TABLE complex_rent_stat TO complex_rent_stat_backup");
         try {
@@ -184,12 +186,46 @@ class SnapshotBuilderTest {
 
         MetricSnapshot s = snapshotRepository.findBySnapshotDate(LocalDate.now()).orElseThrow();
         assertThat(s.getStatus()).isEqualTo(SnapshotStatus.FAILED);
-        assertThat(s.getFailureReason()).isNotBlank();
+        assertThat(s.getFailureReason()).contains("시세 집계 실패");
     }
 
     @Test
-    void 실패한_스냅샷은_조회_대상에서_빠진다() {
-        assertThat(snapshotRepository.findLatestComplete()).isEmpty();
+    void 재빌드_도중에는_이전_완료_스냅샷이_계속_조회된다() {
+        // 원장 F-33: findBySnapshotDate가 기존 행을 그대로 돌려줄 뿐 상태를 건드리지
+        // 않으면, 같은 날을 재빌드하는 동안 metric_snapshot은 여전히 COMPLETE인 채로
+        // clearExisting이 그 날짜의 집계 행을 지운다 — 그 창에서 조회 계층이 오늘을
+        // COMPLETE로 읽고 비어있는(혹은 반쪽인) 테이블을 서비스하게 된다.
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+
+        // 어제 완료된 스냅샷을 직접 심는다 — 재빌드 중에도 계속 서비스돼야 하는 대상.
+        jdbcTemplate.update(
+                "INSERT INTO metric_snapshot (snapshot_date, status, started_at, completed_at)"
+                        + " VALUES (?, 'COMPLETE', NOW(), NOW())", yesterday);
+
+        // 오늘을 한 번 완료해 둔다 — 이제 오늘도 COMPLETE다.
+        seedOneComplexWithLease();
+        builder.build(today);
+
+        // 오늘을 재빌드한다. rentStatBuilder.build()가 불리는 시점(=clearExisting
+        // 직후)에 조회 계층이 실제로 보게 될 최신 COMPLETE 스냅샷의 날짜를 관찰한다.
+        AtomicReference<LocalDate> observedDate = new AtomicReference<>();
+        RentStatBuilder observingRentStatBuilder = mock(RentStatBuilder.class);
+        when(observingRentStatBuilder.build(any(), any())).thenAnswer(invocation -> {
+            observedDate.set(snapshotRepository.findLatestComplete()
+                    .map(MetricSnapshot::getSnapshotDate)
+                    .orElse(null));
+            return 0;
+        });
+
+        SnapshotBuilder rebuildingBuilder = new SnapshotBuilder(
+                observingRentStatBuilder, maturityForecastBuilder, dealFlagBuilder,
+                snapshotRepository, jdbcTemplate);
+
+        rebuildingBuilder.build(today);
+
+        // 재빌드 도중 조회 계층은 오늘(반쪽/빈 상태)이 아니라 어제를 봐야 한다.
+        assertThat(observedDate.get()).isEqualTo(yesterday);
     }
 
     @Test

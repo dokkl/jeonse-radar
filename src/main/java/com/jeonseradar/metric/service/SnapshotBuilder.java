@@ -63,6 +63,14 @@ public class SnapshotBuilder {
         MetricSnapshot snapshot = snapshotRepository.findBySnapshotDate(snapshotDate)
                 .orElseGet(() -> MetricSnapshot.start(snapshotDate));
 
+        // 재빌드 시작을 여기서 커밋해 둔다. findBySnapshotDate가 돌려준 기존 행은
+        // (같은 날 재빌드라면) 여전히 COMPLETE 상태다. 이걸 커밋하지 않고 바로
+        // clearExisting으로 넘어가면, 그 사이 조회 계층이 이 snapshot_date를 COMPLETE로
+        // 읽으면서 이미 지워진/반쪽인 집계 테이블을 서비스하는 창이 생긴다 (원장 F-33).
+        // @Transactional이 없으므로 이 save()는 즉시 커밋되어 다른 커넥션에서 보인다.
+        snapshot.restart();
+        snapshot = snapshotRepository.save(snapshot);
+
         try {
             clearExisting(snapshotDate);
 
@@ -75,8 +83,14 @@ public class SnapshotBuilder {
             log.info("집계 스냅샷 완료 {}: 시세 {}행, 만기 {}행, 플래그 {}행",
                     snapshotDate, rentStatRows, maturityRows, dealFlagRows);
         } catch (RuntimeException e) {
-            snapshot.fail(e.toString());
-            snapshotRepository.save(snapshot);
+            try {
+                snapshot.fail(e.toString());
+                snapshotRepository.save(snapshot);
+            } catch (RuntimeException saveException) {
+                // 실패 기록 저장 자체가 실패하면(같은 DB 장애일 가능성이 높다) 원래
+                // 예외를 이걸로 덮지 않는다. 원인은 suppressed로 붙이고 원래 e를 던진다.
+                e.addSuppressed(saveException);
+            }
             log.error("집계 스냅샷 실패 {}: {}", snapshotDate, e.toString());
             throw e;
         }
