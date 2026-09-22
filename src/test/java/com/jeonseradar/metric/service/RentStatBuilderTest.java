@@ -305,6 +305,39 @@ class RentStatBuilderTest {
     }
 
     @Test
+    void 한_단지가_서로_다른_법정동으로_흩어져_기록돼도_L3는_행이_하나만_생긴다() {
+        // F-39 재현: MOLIT 원본은 법정동을 거래 단위로 기록하므로, 같은 단지·평형이라도
+        // 거래마다 법정동이 다를 수 있다(강서구 마곡/방화 경계의 실제 사례).
+        // L3의 target이 legal_dong까지 DISTINCT에 넣으면 같은 (complex_id, area_bucket)에
+        // 행이 두 개 생겨 uk_rent_stat_key 위반으로 죽는다.
+        complex(40, "11500", "마곡동"); // 대표(canonical) 법정동 = 마곡동
+        // area_bucket 84는 두 단지 모두 window 밖(2025-01-01) 거래뿐이라 L1도 L2도 못 채운다.
+        rent(40, "11500", "방화동", 84, 900_000_000L, LocalDate.of(2025, 1, 1));
+        rent(40, "11500", "마곡동", 84, 900_000_000L, LocalDate.of(2025, 1, 1));
+
+        // 이웃 단지: 방화동 쪽 dong 집계를 만든다 (window 안).
+        complex(41, "11500", "방화동");
+        rent(41, "11500", "방화동", 84, 700_000_000L, LocalDate.of(2026, 8, 1));
+
+        // 이웃 단지: 마곡동 쪽 dong 집계를 만든다 (window 안).
+        complex(42, "11500", "마곡동");
+        rent(42, "11500", "마곡동", 84, 500_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Integer n = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM complex_rent_stat WHERE complex_id = 40 AND area_bucket = 84",
+                Integer.class);
+        assertThat(n).isEqualTo(1);
+
+        Map<String, Object> stat = statOf(40, 84);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L3.name());
+        // 단지의 대표 법정동(마곡동, 500_000_000)을 써야 한다. 다른 거래에 섞여 나온
+        // 방화동 쪽(700_000_000)을 썼다면 이 값이 달랐을 것이다.
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(500_000_000L);
+    }
+
+    @Test
     void 한_단지_평형에_행이_하나만_생긴다() {
         complex(11, "11680", "도곡동");
         rent(11, "11680", "도곡동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));

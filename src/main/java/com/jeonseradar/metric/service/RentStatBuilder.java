@@ -111,7 +111,7 @@ public class RentStatBuilder {
                   (snapshot_date, complex_id, area_bucket, median_deposit, sample_count,
                    source_level, confidence)
                 WITH target AS (
-                  SELECT DISTINCT r.complex_id, r.area_bucket, r.region_code, r.legal_dong
+                  SELECT DISTINCT r.complex_id, r.area_bucket
                   FROM rent_deal r
                   WHERE r.monthly_rent = 0
                     AND NOT EXISTS (
@@ -137,8 +137,9 @@ public class RentStatBuilder {
                 SELECT ?, t.complex_id, t.area_bucket,
                        CAST(d.median_deposit AS SIGNED), d.cnt, 'L3', 'LOW'
                 FROM target t
-                JOIN dong d ON d.region_code = t.region_code
-                           AND d.legal_dong  = t.legal_dong
+                JOIN complex c ON c.id = t.complex_id
+                JOIN dong d ON d.region_code = c.region_code
+                           AND d.legal_dong  = c.legal_dong
                            AND d.area_bucket = t.area_bucket
                 """.formatted(MedianSql.MIDDLE_ROWS);
         return jdbcTemplate.update(sql, snapshotDate, windowStart, asOf, snapshotDate);
