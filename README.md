@@ -46,7 +46,7 @@
 |------|------|------|
 | JDK | 21 | |
 | Docker | 실행 중이어야 함 | 테스트가 Testcontainers로 MySQL을 띄운다 |
-| MySQL | 8.0 | 애플리케이션 실행 시에만 필요. 테스트는 Testcontainers가 대신함 |
+| MySQL | 8.0 | 애플리케이션 실행 시에만 필요. 테스트는 Testcontainers가 대신함. `docker-compose.yml` 제공 |
 | 공공데이터포털 서비스키 | — | 아래 참조 |
 
 Gradle은 별도 설치가 필요 없다 — 저장소에 wrapper(`./gradlew`)가 포함되어 있다.
@@ -118,13 +118,33 @@ Docker가 떠 있어야 한다. 첫 실행은 `mysql:8.0` 이미지를 받느라
 ./gradlew test --tests '*ContractTermParserTest'
 ```
 
+### 로컬 데이터베이스
+
+저장소 루트의 `docker-compose.yml`로 로컬 MySQL을 띄운다. 접속 정보가 `application.yml`의
+기본값과 일치하므로 환경변수를 따로 줄 필요가 없다.
+
+```bash
+docker compose up -d --wait   # 헬스체크 통과까지 대기
+docker compose logs -f db     # 로그
+docker compose down           # 중지 (데이터는 볼륨에 남는다)
+docker compose down -v        # 중지 + 데이터 삭제
+```
+
+한글 단지명을 위해 `utf8mb4`, `NOW()`가 KST를 쓰도록 `--default-time-zone=+09:00`,
+백필의 대량 적재를 위해 버퍼 풀 512M와 `max_allowed_packet` 64M로 설정되어 있다.
+
+> CLI로 직접 들여다볼 때는 클라이언트 charset을 지정해야 한다.
+> `docker exec jeonse-mysql mysql --default-character-set=utf8mb4 -ujeonse -pjeonse jeonse`
+> 빼먹으면 한글이 깨져 보이고 `CHAR_LENGTH()`가 바이트 수를 돌려준다. 저장은 정상이며
+> 조회 화면만 그런 것이니 이걸 보고 데이터를 고치면 안 된다.
+
 ### 애플리케이션
 
 ```bash
 ./gradlew bootRun
 ```
 
-MySQL이 떠 있어야 하고 `MOLIT_SERVICE_KEY`가 설정되어 있어야 한다.
+MySQL이 떠 있어야 하고(위 `docker compose up -d`) `MOLIT_SERVICE_KEY`가 설정되어 있어야 한다.
 
 > **주의:** 현재는 스케줄러와 백필 진입점이 없으므로(10번 태스크 미완료), 애플리케이션을 띄워도
 > 스스로 데이터를 수집하지 않는다. 컨텍스트가 뜨고 스키마가 생성될 뿐이다.

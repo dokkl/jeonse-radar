@@ -1,0 +1,50 @@
+# 로컬 개발용 MySQL.
+#
+#   docker compose up -d      기동 (헬스체크 통과까지 대기하려면 --wait)
+#   docker compose logs -f db 로그
+#   docker compose down       중지 (데이터는 볼륨에 남음)
+#   docker compose down -v    중지 + 데이터 삭제
+#
+# 접속 정보는 application.yml의 기본값과 일치하므로 환경변수 없이 바로 붙는다.
+# 테스트는 이 컨테이너를 쓰지 않는다 — Testcontainers가 별도 인스턴스를 띄운다.
+#
+# CLI로 들여다볼 때는 클라이언트 charset을 반드시 지정한다:
+#   docker exec jeonse-mysql mysql --default-character-set=utf8mb4 -ujeonse -pjeonse jeonse
+# 빼먹으면 한글이 깨져 보이고 CHAR_LENGTH()가 글자 수가 아니라 바이트 수를 돌려준다.
+# 저장은 멀쩡한데 조회 화면만 이상한 것이므로, 이걸 보고 데이터를 고치면 안 된다.
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: jeonse-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: jeonse
+      MYSQL_USER: jeonse
+      MYSQL_PASSWORD: jeonse
+      MYSQL_ROOT_PASSWORD: root
+      TZ: Asia/Seoul
+    command:
+      # 한글 단지명(예: 경희궁자이(3단지))이 깨지지 않으려면 utf8mb4가 필수다.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # NOW()가 KST를 쓰도록. JDBC URL의 serverTimezone과 어긋나면 updated_at이 9시간 틀어진다.
+      - --default-time-zone=+09:00
+      # 백필은 1천만 행 규모를 배치로 적재한다. 기본 128M로는 버퍼 풀이 계속 밀려난다.
+      - --innodb-buffer-pool-size=512M
+      # rewriteBatchedStatements=true로 묶여 오는 배치 INSERT가 기본 한도에 걸리지 않게.
+      - --max-allowed-packet=64M
+    volumes:
+      - jeonse-mysql-data:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping은 서버가 초기화를 끝내기 전에도 성공할 수 있어 실제 쿼리로 확인한다.
+      test: ["CMD-SHELL", "mysql -ujeonse -pjeonse -e 'SELECT 1' jeonse || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  jeonse-mysql-data:
