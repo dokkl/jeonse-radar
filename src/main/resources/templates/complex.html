@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${page.title()}">단지</title>
+  <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
+  <link rel="canonical" th:href="${page.path()}">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1 th:text="${page.displayName()} + ' 전세 만기·역전세 현황'">단지명</h1>
+  <p class="muted">
+    <span th:text="${page.regionName()}">지역</span>
+    <span th:text="${page.legalDong()}">법정동</span>
+    <span th:if="${page.buildYear() != null}" th:text="'· ' + ${page.buildYear()} + '년 준공'"></span>
+    · <span th:text="${page.snapshotDate()}">기준일</span> 기준
+  </p>
+
+  <h2>현재 전세 시세</h2>
+  <p class="muted" th:if="${page.areaStats().isEmpty()}">
+    최근 6개월 전세 실거래가 없어 시세를 산출하지 못했습니다.
+  </p>
+  <table th:unless="${page.areaStats().isEmpty()}">
+    <thead>
+    <tr><th>평형(㎡)</th><th>전세 중위값</th><th>표본</th><th>산출</th><th>신뢰도</th></tr>
+    </thead>
+    <tbody>
+    <tr th:each="s : ${page.areaStats()}">
+      <td th:text="${s.areaBucket()}">84</td>
+      <td th:text="${#numbers.formatInteger(s.medianDeposit() / 10000, 0, 'COMMA')} + '만원'">0</td>
+      <td th:text="${s.sampleCount()} + '건'">0</td>
+      <td th:text="${s.sourceLevel()}">L1</td>
+      <td><span class="conf" th:classappend="'conf-' + ${s.confidence()}"
+                th:text="${s.confidence()}">HIGH</span></td>
+    </tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    산출 기준 — L1: 이 단지 같은 평형의 최근 6개월 실거래.
+    L2: 이 단지 다른 평형의 ㎡당 단가로 환산. L3: 같은 법정동 같은 평형.
+    표본이 적으면 신뢰도를 낮춰 표시합니다.
+  </p>
+
+  <h2>전세 만기 일정과 역전세 갭</h2>
+  <p class="muted" th:if="${page.maturities().isEmpty()}">만기가 확인된 계약이 없습니다.</p>
+  <table th:unless="${page.maturities().isEmpty()}">
+    <thead>
+    <tr><th>만기</th><th>평형</th><th>계약</th><th>당시 보증금</th><th>현재 시세</th>
+      <th>갭</th><th>갱신권 소진</th><th>신뢰도</th></tr>
+    </thead>
+    <tbody>
+    <tr th:each="m : ${page.maturities()}">
+      <td th:text="${#strings.substring(m.maturityYm(),0,4)} + '.' + ${#strings.substring(m.maturityYm(),4,6)}">2026.12</td>
+      <td th:text="${m.areaBucket()}">84</td>
+      <td th:text="${m.contractCount()} + '건'">0</td>
+      <td th:text="${#numbers.formatInteger(m.medianDepositThen() / 10000, 0, 'COMMA')}">0</td>
+      <td th:text="${#numbers.formatInteger(m.currentMedianDeposit() / 10000, 0, 'COMMA')}">0</td>
+      <td th:classappend="${m.gapAmount() > 0} ? 'gap-pos' : 'gap-neg'"
+          th:text="(${m.gapAmount() > 0} ? '+' : '') + ${#numbers.formatInteger(m.gapAmount() / 10000, 0, 'COMMA')}">0</td>
+      <td th:text="${m.renewalExhaustedCount()} + '건'">0</td>
+      <td><span class="conf" th:classappend="'conf-' + ${m.confidence()}"
+                th:text="${m.confidence()}">LOW</span></td>
+    </tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    갭은 <b>당시 보증금 − 현재 시세</b>입니다. 양수(빨강)는 만기에 집주인이 돌려줘야 할
+    차액이 있다는 뜻입니다. 계약 건수가 적으면 당시 보증금이 중위값이 아니라 그 한 건의
+    가격이므로, 신뢰도를 그만큼 낮춰 표시합니다.
+  </p>
+</div>
+</body>
+</html>

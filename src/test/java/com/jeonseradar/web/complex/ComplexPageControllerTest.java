@@ -1,0 +1,130 @@
+package com.jeonseradar.web.complex;
+
+import com.jeonseradar.metric.entity.MetricSnapshot;
+import com.jeonseradar.metric.repository.MetricSnapshotRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.time.LocalDate;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * 네트워크를 타는 테스트를 만들지 않는다 — Testcontainers로 로컬 MySQL을 띄워 붙인다.
+ * 보일러플레이트는 {@code ComplexPageQueryTest}(Task 3)를 그대로 따른다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Testcontainers
+class ComplexPageControllerTest {
+
+    @Container
+    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
+
+    @DynamicPropertySource
+    static void datasource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", mysql::getJdbcUrl);
+        registry.add("spring.datasource.username", mysql::getUsername);
+        registry.add("spring.datasource.password", mysql::getPassword);
+    }
+
+    private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
+
+    @Autowired MockMvc mvc;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired MetricSnapshotRepository snapshots;
+
+    @BeforeEach
+    void clean() {
+        jdbc.update("DELETE FROM maturity_forecast");
+        jdbc.update("DELETE FROM complex_rent_stat");
+        jdbc.update("DELETE FROM complex");
+        snapshots.deleteAll();
+    }
+
+    private void publishSnapshot() {
+        MetricSnapshot s = MetricSnapshot.start(SNAPSHOT);
+        s.complete(1, 0, 0);
+        snapshots.save(s);
+    }
+
+    private void complexWith(String name, String confidence) {
+        jdbc.update("""
+                INSERT INTO complex (id, apt_seq, region_code, legal_dong, jibun,
+                                     display_name, slug, build_year)
+                VALUES (1, '11710-1', '11710', '잠실동', '40', ?, 'helio-11710-1', 2018)
+                """, name);
+        jdbc.update("""
+                INSERT INTO complex_rent_stat (snapshot_date, complex_id, area_bucket,
+                        median_deposit, sample_count, source_level, confidence)
+                VALUES (?, 1, 84, 950000000, 30, 'L1', ?)
+                """, SNAPSHOT, confidence);
+    }
+
+    @Test
+    void 발행된_스냅샷이_없으면_503을_준다() throws Exception {
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void 없는_단지는_404를_준다() throws Exception {
+        publishSnapshot();
+        mvc.perform(get("/단지/999-없음")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 단지_페이지가_렌더링된다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("complex"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("헬리오시티")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("전세 만기·역전세 현황")));
+    }
+
+    @Test
+    void slug가_다르면_정규_주소로_301한다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+
+        mvc.perform(get("/단지/1-옛날slug"))
+                .andExpect(status().isMovedPermanently())
+                .andExpect(redirectedUrl("/단지/1-helio-11710-1"));
+    }
+
+    @Test
+    void 신뢰도가_충분하면_noindex를_넣지_않는다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(content().string(
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("noindex"))));
+    }
+
+    @Test
+    void 신뢰도가_낮으면_noindex를_넣는다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "LOW");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("noindex")));
+    }
+}
