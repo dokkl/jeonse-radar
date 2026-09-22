@@ -413,8 +413,27 @@ gap_amount = median_deposit_then − current_median_deposit     (양수 = 역전
 gap_rate   = gap_amount / median_deposit_then
 ```
 
-`median_deposit_then`은 과거 실제 체결가이므로 폴백이 필요 없다.
-폴백은 `current_median_deposit`에만 적용되며, 그 결과가 해당 행의 `confidence`를 결정한다.
+`median_deposit_then`은 과거 실제 체결가이므로 **폴백이 필요 없다** — 남의 단지 시세를
+빌려올 일이 없다. 그러나 폴백이 필요 없다는 것과 믿을 만하다는 것은 다르다. 만기월의
+계약이 1건이면 `median_deposit_then`은 중위값이 아니라 그 한 건의 가격이고, 갭의 오차는
+그쪽이 지배한다.
+
+따라서 **`confidence`는 양쪽 중 낮은 쪽으로 정한다**:
+
+```
+confidence = min( current_median_deposit 의 confidence,   # §3.5의 폴백 계단
+                  contract_count 의 표본 등급 )            # §3.5의 등급표 그대로
+```
+
+§3.5의 "레벨과 표본 수 중 낮은 쪽을 채택한다"를 then 쪽에도 똑같이 적용하는 것이며,
+같은 절의 "표본 부족을 숨기지 않는다"가 요구하는 바이기도 하다.
+
+> **개정 이력.** 최초 스펙은 "폴백은 current_median_deposit에만 적용되며, 그 결과가
+> 해당 행의 confidence를 결정한다"고 했다. 2026-09-22 전국 부분 데이터(만기 예측
+> 470,663행)로 실측한 결과 57.8%가 계약 1건이었고, 갭 상위 50위 중 44개가 1건짜리였다.
+> 마곡엠밸리2단지 115㎡는 계약 1건·갭 6.78억에 HIGH가 붙었다. 1건 그룹의 최대 갭은
+> 35억, 5건 이상 그룹은 9억 — 극단값이 시장이 아니라 표본 빈약의 산물이었다.
+> 원장 F-41.
 
 ### 3.5 표본 부족 처리 — confidence 폴백 계단
 
