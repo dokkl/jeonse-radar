@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${sido} + ' 역전세 현황'">시도</title>
+  <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1 th:text="${sido} + ' 전세 만기·역전세 현황'">시도</h1>
+  <!-- th:href는 UriUtils가 아니라 Thymeleaf가 인코딩한다. HTML 본문의 href는
+       UTF-8이라 한글이 그대로 있어도 브라우저가 처리하지만, 일관성을 위해
+       Location·sitemap과 같은 형태를 쓴다 (원장 P3-3). -->
+  <ul class="sigungu">
+    <li th:each="r : ${regions}">
+      <a th:href="@{/역전세/{sido}/{sigungu}(sido=${r.sidoSegment()}, sigungu=${r.sigunguSegment()})}"
+         th:text="${r.displayName()}">시군구</a>
+    </li>
+  </ul>
+</div>
+</body>
+</html>
