@@ -28,6 +28,8 @@
   `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
   커밋 후 `git log -1 --format='%(trailers:key=Co-Authored-By,valueonly=true)'`로 값이 출력되는지 확인한다.
 - 브랜치 생성·이름변경·삭제·전환·머지·푸시 금지. git 상태가 이상하면 멈추고 보고한다.
+- **한글 테스트 메서드명은 숫자로 시작할 수 없다** — 자바 식별자 규칙이다.
+  `61일째부터_...` 가 아니라 `계약_후_61일째부터_...` 처럼 앞에 낱말을 붙인다.
 
 ## 실측 근거 (2026-09-22, 백필 진행 중 6.3% 시점)
 
@@ -790,7 +792,7 @@ class RentStatBuilderTest {
     }
 
     @Test
-    void 6개월보다_오래된_거래는_L1_표본에서_빠진다() {
+    void 거래일이_6개월보다_오래되면_L1_표본에서_빠진다() {
         complex(3, "11680", "대치동");
         rent(3, "11680", "대치동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));  // 6개월 밖
         rent(3, "11680", "대치동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
@@ -1642,7 +1644,7 @@ class DealFlagBuilderTest {
     }
 
     @Test
-    void 61일째부터_플래그한다() {
+    void 계약_후_61일째부터_플래그한다() {
         trade("h5", AS_OF.minusDays(61), null, "N", "중개거래");
 
         builder.build(SNAPSHOT, AS_OF);
