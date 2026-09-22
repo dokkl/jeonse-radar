@@ -2134,9 +2134,18 @@ public class SnapshotBuilder {
         MetricSnapshot snapshot = snapshotRepository.findBySnapshotDate(snapshotDate)
                 .orElseGet(() -> MetricSnapshot.start(snapshotDate));
 
-        clearExisting(snapshotDate);
+        // 재빌드도 BUILDING으로 되돌린 뒤 저장한다. 이걸 빼면 이미 COMPLETE인 날짜를
+        // 재빌드하는 동안 clearExisting이 그 날짜 집계 행을 지우는데도 스냅샷은 COMPLETE로
+        // 남아, 독자가 빈 테이블을 읽는다. 되돌려 두면 그 창 동안 findLatestComplete()가
+        // 오늘을 건너뛰고 어제 스냅샷을 계속 서빙한다 (원장 F-33).
+        snapshot.restart();
+        snapshotRepository.save(snapshot);
 
         try {
+            // 정리도 try 안에 있어야 한다. 밖에 두면 clearExisting이 던지는 예외가
+            // catch를 건너뛰어 FAILED 기록이 남지 않는다 (원장 F-32).
+            clearExisting(snapshotDate);
+
             int rentStatRows = rentStatBuilder.build(snapshotDate, asOf);
             int maturityRows = maturityForecastBuilder.build(
                     snapshotDate, YearMonth.from(asOf).format(YM));
