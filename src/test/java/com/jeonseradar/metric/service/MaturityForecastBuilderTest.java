@@ -210,4 +210,59 @@ class MaturityForecastBuilderTest {
         assertThat(((Number) forecastOf(9, 85, "202612").get("contract_count")).intValue())
                 .isEqualTo(1);
     }
+
+    /** 만기가 termEndYm인 순수 전세를 count건 심는다. 보증금은 서로 다르게 흩뿌린다. */
+    private void leases(long complexId, int areaBucket, String termEndYm, int count) {
+        for (int i = 0; i < count; i++) {
+            lease(complexId, areaBucket, 500_000_000L + i * 1_000_000L, termEndYm, false, false);
+        }
+    }
+
+    // ledger F-41: confidence는 현재 시세 쪽 신뢰도만 보고 있었다. then 쪽 표본이 1건이면
+    // 중위값이 아니라 그 한 건의 가격일 뿐인데도 현재 쪽이 HIGH면 그대로 HIGH가 찍혔다.
+    // 마곡엠밸리2단지 115㎡, 만기 202810, contract_count=1, gap 6.78억, confidence=HIGH가
+    // 실측 데이터에서 나온 구체 사례다.
+
+    @Test
+    void 현재_시세가_HIGH여도_만기_계약이_1건이면_confidence는_LOW다() {
+        currentStat(100, 115, 400_000_000L, "HIGH");
+        lease(100, 115, 467_800_000L, "202810", false, false);
+
+        builder.build(SNAPSHOT, "202610");
+
+        assertThat(forecastOf(100, 115, "202810").get("confidence"))
+                .isEqualTo(Confidence.LOW.name());
+    }
+
+    @Test
+    void 만기_계약_건수가_표본_경계값을_지날_때마다_confidence_등급이_바뀐다() {
+        currentStat(101, 85, 400_000_000L, "HIGH");
+        leases(101, 85, "202612", 2);
+        currentStat(102, 85, 400_000_000L, "HIGH");
+        leases(102, 85, "202612", 3);
+        currentStat(103, 85, 400_000_000L, "HIGH");
+        leases(103, 85, "202612", 9);
+        currentStat(104, 85, 400_000_000L, "HIGH");
+        leases(104, 85, "202612", 10);
+
+        builder.build(SNAPSHOT, "202610");
+
+        assertThat(forecastOf(101, 85, "202612").get("confidence")).isEqualTo(Confidence.LOW.name());
+        assertThat(forecastOf(102, 85, "202612").get("confidence")).isEqualTo(Confidence.MEDIUM.name());
+        assertThat(forecastOf(103, 85, "202612").get("confidence")).isEqualTo(Confidence.MEDIUM.name());
+        assertThat(forecastOf(104, 85, "202612").get("confidence")).isEqualTo(Confidence.HIGH.name());
+    }
+
+    @Test
+    void 현재_시세가_LOW나_MEDIUM이면_만기_표본이_많아도_그보다_승격되지_않는다() {
+        currentStat(105, 85, 400_000_000L, "LOW");
+        leases(105, 85, "202612", 50);
+        currentStat(106, 85, 400_000_000L, "MEDIUM");
+        leases(106, 85, "202612", 50);
+
+        builder.build(SNAPSHOT, "202610");
+
+        assertThat(forecastOf(105, 85, "202612").get("confidence")).isEqualTo(Confidence.LOW.name());
+        assertThat(forecastOf(106, 85, "202612").get("confidence")).isEqualTo(Confidence.MEDIUM.name());
+    }
 }

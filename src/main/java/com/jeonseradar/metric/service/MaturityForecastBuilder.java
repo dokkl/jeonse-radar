@@ -70,7 +70,17 @@ public class MaturityForecastBuilder {
                        CAST(m.median_deposit AS SIGNED) - s.median_deposit,
                        (CAST(m.median_deposit AS SIGNED) - s.median_deposit) / m.median_deposit,
                        c.renewal_exhausted_count,
-                       s.confidence
+                       -- F-41: confidence는 현재 시세(s) 쪽만 보고 있었다. median_deposit_then은
+                       -- 폴백이 없어 항상 "실제 체결가"이긴 하지만 (스펙 §3.4), 표본이 1건이면
+                       -- 중위값이 아니라 그 한 건의 가격일 뿐이라 갭의 오차가 거기서 온다.
+                       -- 스펙 §3.5의 "레벨과 표본 수 중 낮은 쪽을 채택한다"를 then 쪽에도 그대로
+                       -- 적용해, 현재 쪽 confidence와 then 쪽 표본 등급(contract_count) 중
+                       -- 더 낮은 쪽을 최종 confidence로 삼는다 — "표본 부족을 숨기지 않는다".
+                       CASE
+                         WHEN s.confidence = 'LOW'    OR c.contract_count < 3  THEN 'LOW'
+                         WHEN s.confidence = 'MEDIUM' OR c.contract_count < 10 THEN 'MEDIUM'
+                         ELSE 'HIGH'
+                       END
                 FROM counts c
                 JOIN median_then m ON m.complex_id = c.complex_id
                                   AND m.area_bucket = c.area_bucket
