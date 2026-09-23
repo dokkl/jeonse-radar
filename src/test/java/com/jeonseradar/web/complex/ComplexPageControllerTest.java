@@ -147,4 +147,22 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("5건 (추정"))));
     }
+
+    @Test
+    void 계약_건수가_하한값임을_표기한다() throws Exception {
+        // 스펙 §1.3 개정(2026-09-23): deal_hash가 동/호 없이 자연키로 거래를 합치므로
+        // contractCount·renewalExhaustedCount는 전국 기준 약 8.60%가 낮게 잡히는
+        // 최소값이다. 이 사실을 열 헤더의 "*"와 설명 문단이 실제로 렌더링하는지 고정한다.
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        maturity(12, 3, 1_000_000_000L, 900_000_000L, 100_000_000L);
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("계약*")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("갱신권 소진*")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("최소값")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("동·호수")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("8.60%")));
+    }
 }

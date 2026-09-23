@@ -146,6 +146,24 @@ class RegionPageControllerTest extends IntegrationTestSupport {
     }
 
     @Test
+    void 계약_건수가_하한값임을_표기한다() throws Exception {
+        // 스펙 §1.3 개정(2026-09-23): deal_hash가 동/호 없이 자연키로 거래를 합치므로
+        // 카드와 랭킹표의 계약 건수는 전국 기준 약 8.60%가 낮게 잡히는 최소값이다.
+        // 카드 라벨의 "*"와 그 아래 설명 문단이 실제로 렌더링되는지 고정한다.
+        complexIn("11710", 1, "헬리오시티");
+        forecast(1, 100_000_000L, 5, "MEDIUM");
+
+        mvc.perform(get("/역전세/서울특별시/송파구"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("만기 예정 계약*")))
+                .andExpect(content().string(containsString("역전세 해당 계약*")))
+                .andExpect(content().string(containsString("계약*"))) // 랭킹표 열 헤더
+                .andExpect(content().string(containsString("최소값")))
+                .andExpect(content().string(containsString("동·호수")))
+                .andExpect(content().string(containsString("8.60%")));
+    }
+
+    @Test
     void 시군구가_없는_시도는_인덱스가_곧_지역_페이지다() throws Exception {
         complexIn("36110", 1, "세종단지");
         forecast(1, 100_000_000L, 5, "MEDIUM");

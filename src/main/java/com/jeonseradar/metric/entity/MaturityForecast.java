@@ -37,6 +37,12 @@ public class MaturityForecast {
     @Column(length = 6, nullable = false)
     private String maturityYm;
 
+    /**
+     * 계약 건수 — <b>하한값</b>이다. 국토교통부 자료는 동/호를 제공하지 않아, 같은 단지·
+     * 같은 평형·같은 층·같은 가격·같은 날 거래는 {@code deal_hash}에서 한 행으로 합쳐진다
+     * (스펙 §1.3). 전국 기준 약 8.60%가 이렇게 합쳐지므로, 실제 계약 수는 이 값 이상이다.
+     * 재수집으로 해결되지 않는 원천 데이터의 한계이니, 화면에 확정치처럼 표기하지 말 것.
+     */
     private Integer contractCount;
 
     /** 그중 계약기간이 결측이라 계약일+24개월로 추정한 건수 (스펙 §3.2) */
@@ -54,7 +60,11 @@ public class MaturityForecast {
     /** gapAmount / medianDepositThen */
     private Double gapRate;
 
-    /** 갱신요구권을 이미 쓴 건수 — 다음 만기에 갱신권이 없다 (스펙 §3.6) */
+    /**
+     * 갱신요구권을 이미 쓴 건수 — 다음 만기에 갱신권이 없다 (스펙 §3.6).
+     * {@code contractCount}와 같은 이유(§1.3)로 <b>하한값</b>이다 — 유료 리드 상품이
+     * 근거로 삼는 숫자이니 확정치처럼 표기하지 말 것.
+     */
     private Integer renewalExhaustedCount;
 
     @Enumerated(EnumType.STRING)
