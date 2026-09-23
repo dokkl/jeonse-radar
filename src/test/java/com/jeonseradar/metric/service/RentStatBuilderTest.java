@@ -166,8 +166,12 @@ class RentStatBuilderTest {
 
         complex(22, "11680", "반포동");
         rent(22, "11680", "반포동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));
+        // F-31과 우연히 겹치지 않도록 10건을 서로 다른 보증금으로 흩어 둔다(전부
+        // 동일하면 그 자체가 10건+90% 오염 패턴이 되어, 이 단지의 유일한 window-내
+        // 데이터가 통째로 제외되고 L2가 아예 못 채우게 된다 — 이 테스트의 의도인
+        // "표본 10건일 때의 confidence/sample_count"와 무관한 이유로 실패한다).
         for (int i = 0; i < 10; i++) {
-            rent(22, "11680", "반포동", 60, 360_000_000L, LocalDate.of(2026, 8, 1));
+            rent(22, "11680", "반포동", 60, 360_000_000L + i * 1_000_000L, LocalDate.of(2026, 8, 1));
         }
 
         builder.build(SNAPSHOT, AS_OF);
@@ -262,8 +266,15 @@ class RentStatBuilderTest {
         complex(7, "11680", "청담동");
         complex(8, "11680", "청담동");
         rent(7, "11680", "청담동", 85, 900_000_000L, LocalDate.of(2025, 1, 1));
-        for (int i = 0; i < 20; i++) {
+        // 20건을 두 값으로 절반씩 나눈다(50%/50% — F-31의 90% 문턱과 무관). 전부
+        // 동일하면 그 자체가 10건+90% 오염 패턴이 되어 이 법정동·평형 풀 전체가
+        // 제외되고, "표본이 많아도 L3는 LOW"라는 원래 의도와 무관하게 행 자체가
+        // 안 생겨 실패한다.
+        for (int i = 0; i < 10; i++) {
             rent(8, "11680", "청담동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        for (int i = 0; i < 10; i++) {
+            rent(8, "11680", "청담동", 85, 505_000_000L, LocalDate.of(2026, 8, 1));
         }
 
         builder.build(SNAPSHOT, AS_OF);
@@ -485,5 +496,60 @@ class RentStatBuilderTest {
         assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(12);
         assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(555_000_000L);
         assertThat(stat.get("confidence")).isEqualTo(Confidence.HIGH.name());
+    }
+
+    // ---- F-31b: 오염 제외는 거래 자체의 속성이지 레벨의 속성이 아니다. L1이 통째로
+    //      비우고 넘어간 자리를 L2·L3가 원본(오염된) rent_deal로 다시 채우면 안 된다. ----
+
+    @Test
+    void 유일한_평형이_전부_오염된_단지는_L2로도_오염값을_내지_않는다() {
+        // 오송역대광로제비앙그랜드센텀 재현: 유일한 평형(85)의 거래 전부가 동일 보증금.
+        complex(80, "11680", "오송동");
+        for (int i = 0; i < 15; i++) {
+            rent(80, "11680", "오송동", 85, 255_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        // 같은 법정동의 이웃 단지 — 진짜 시장 거래 3건. L3 폴백이 있어야 "행이 아예
+        // 안 생김"과 "L3로 넘어가 진짜 값을 냄"을 구분해서 확인할 수 있다.
+        complex(81, "11680", "오송동");
+        rent(81, "11680", "오송동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(81, "11680", "오송동", 85, 520_000_000L, LocalDate.of(2026, 8, 1));
+        rent(81, "11680", "오송동", 85, 540_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(80, 85);
+        // L1도 L2도 못 채웠다 — 단지 80의 유일한 평형이 통째로 제외됐으니 L2가 쓸
+        // ㎡당 단가 자체가 안 나온다. L3까지 내려가 이웃 단지의 진짜 값을 빌려 썼다.
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L3.name());
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(3);
+        // 이웃 단지 3건의 중위값(5.2억)이지, 오염값(2.55억)이 아니다.
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(520_000_000L);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isNotEqualTo(255_000_000L);
+    }
+
+    @Test
+    void 법정동에_오염된_단지가_섞여있어도_다른_단지의_L3는_진짜_거래만_반영한다() {
+        // 오염 유발 단지 — 이 단지 자신의 시세는 이 테스트의 관심사가 아니다.
+        complex(82, "11680", "죽전동");
+        for (int i = 0; i < 12; i++) {
+            rent(82, "11680", "죽전동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        // 같은 법정동의 진짜 시세 기여 단지.
+        complex(83, "11680", "죽전동");
+        rent(83, "11680", "죽전동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(83, "11680", "죽전동", 85, 520_000_000L, LocalDate.of(2026, 8, 1));
+        rent(83, "11680", "죽전동", 85, 540_000_000L, LocalDate.of(2026, 8, 1));
+        // 대상 단지 — 자기 평형에 window 안 거래가 없어 L3로 내려가야 한다.
+        complex(84, "11680", "죽전동");
+        rent(84, "11680", "죽전동", 85, 999_000_000L, LocalDate.of(2025, 1, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(84, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L3.name());
+        // 오염 단지의 12건이 풀에서 빠졌으므로 표본은 진짜 3건뿐이어야 한다
+        // (안 빠졌다면 15건이 섞여 중위값이 9억 쪽으로 끌려갔을 것이다).
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(3);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(520_000_000L);
     }
 }
