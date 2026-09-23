@@ -240,4 +240,118 @@ class MaturityForecastBuilderTest extends IntegrationTestSupport {
         assertThat(forecastOf(105, 85, "202612").get("confidence")).isEqualTo(Confidence.LOW.name());
         assertThat(forecastOf(106, 85, "202612").get("confidence")).isEqualTo(Confidence.MEDIUM.name());
     }
+
+    /**
+     * 만기가 termEndYm인 순수 전세를 count건, 전부 같은 보증금으로 심는다.
+     *
+     * <p>{@link #leases(long, int, String, int)}가 일부러 피하는 패턴이다 — 대형 임대사업자의
+     * 일괄 행정 갱신은 한 보증금 값이 그룹을 통째로 지배한다. 이 메서드는 그 패턴을 재현한다.
+     */
+    private void bulkRenewal(long complexId, int areaBucket, String termEndYm,
+                             int count, long deposit) {
+        for (int i = 0; i < count; i++) {
+            lease(complexId, areaBucket, deposit, termEndYm, false, false);
+        }
+    }
+
+    // ---- F-31c: then 쪽 표본 등급이 "몇 건이냐"만 보고 있었다. 대형 임대사업자가 같은
+    //      보증금으로 17건을 한꺼번에 갱신하면 contract_count는 17이라 HIGH가 찍히지만,
+    //      그 17건은 독립된 관측 17개가 아니라 임대 의사결정 하나가 복제된 것이다.
+    //      RentStatBuilder의 CLEAN_DEALS_CTE는 현재 시세 쪽에서 같은 패턴을 이미 배제하고
+    //      있었는데(F-31), 예측 쪽에는 그 규칙이 아예 넘어오지 않아 갭이 "행정가 − 시장가"가
+    //      됐다. 계약은 실재하므로 지우지 않는다 — 등급만 증거에 맞춘다.
+    //
+    //      판정식은 CLEAN_DEALS_CTE와 글자 그대로 같다: 그룹 10건 이상 + 한 보증금 값이 90%
+    //      이상(dep_cnt * 10 >= grp_cnt * 9). 아래 9/10건, 85%/90% 경계 테스트는
+    //      RentStatBuilderTest의 F-31 경계 테스트와 짝을 이룬다. ----
+
+    @Test
+    void 만기_그룹이_전부_같은_보증금이면_현재_시세가_HIGH여도_confidence는_LOW다() {
+        // 구파발9단지래미안 85㎡ 만기 202810 재현: 17건이 전부 정확히 4.5006억(100% 동일).
+        // 현재 시세는 정제된 표본 137건짜리 L1 HIGH인데, then 쪽은 원본을 그대로 읽어
+        // contract_count=17 → HIGH가 찍히고 갭 +2.33억(51.7%)이 HIGH로 노출됐다.
+        currentStat(200, 85, 217_000_000L, "HIGH");
+        bulkRenewal(200, 85, "202810", 17, 450_060_000L);
+
+        builder.build(SNAPSHOT, "202610");
+
+        Map<String, Object> f = forecastOf(200, 85, "202810");
+        assertThat(f.get("confidence")).isEqualTo(Confidence.LOW.name());
+        // 계약은 실재한다 — 건수와 당시 보증금은 그대로 둔다. 강등되는 것은 등급뿐이다.
+        assertThat(((Number) f.get("contract_count")).intValue()).isEqualTo(17);
+        assertThat(((Number) f.get("median_deposit_then")).longValue()).isEqualTo(450_060_000L);
+        assertThat(((Number) f.get("gap_amount")).longValue()).isEqualTo(233_060_000L);
+    }
+
+    @Test
+    void 만기_그룹이_9건이면_보증금이_전부_같아도_강등되지_않는다() {
+        // 집중도는 100%지만 10건 미만이라 규칙이 켜지지 않는다. 표본 9건의 원래 등급
+        // (10건 미만 → MEDIUM)이 그대로여야 한다 — LOW로 더 내려가면 안 된다.
+        currentStat(201, 85, 217_000_000L, "HIGH");
+        bulkRenewal(201, 85, "202810", 9, 450_060_000L);
+
+        builder.build(SNAPSHOT, "202610");
+
+        assertThat(forecastOf(201, 85, "202810").get("confidence"))
+                .isEqualTo(Confidence.MEDIUM.name());
+    }
+
+    @Test
+    void 만기_그룹이_10건이면_보증금이_전부_같을_때_강등된다() {
+        // 같은 집중 패턴에 1건만 더해 10건을 만들면 규칙이 켜진다. 규칙이 없다면
+        // contract_count=10 + 현재 HIGH라 HIGH가 찍힐 자리다.
+        currentStat(202, 85, 217_000_000L, "HIGH");
+        bulkRenewal(202, 85, "202810", 10, 450_060_000L);
+
+        builder.build(SNAPSHOT, "202610");
+
+        assertThat(forecastOf(202, 85, "202810").get("confidence"))
+                .isEqualTo(Confidence.LOW.name());
+    }
+
+    @Test
+    void 만기_그룹의_집중도가_90퍼센트_미만이면_강등되지_않는다() {
+        // 17/20 = 85% — 10건 이상이지만 90%에 못 미쳐 규칙이 켜지지 않는다.
+        currentStat(203, 85, 217_000_000L, "HIGH");
+        bulkRenewal(203, 85, "202810", 17, 450_060_000L);
+        lease(203, 85, 520_000_000L, "202810", false, false);
+        lease(203, 85, 540_000_000L, "202810", false, false);
+        lease(203, 85, 560_000_000L, "202810", false, false);
+
+        builder.build(SNAPSHOT, "202610");
+
+        Map<String, Object> f = forecastOf(203, 85, "202810");
+        assertThat(((Number) f.get("contract_count")).intValue()).isEqualTo(20);
+        assertThat(f.get("confidence")).isEqualTo(Confidence.HIGH.name());
+    }
+
+    @Test
+    void 만기_그룹의_집중도가_정확히_90퍼센트면_강등된다() {
+        // 18/20 = 90% 정확히 — 경계값이므로 켜져야 한다. 정수 비교(dep_cnt * 10 >= grp_cnt * 9)
+        // 라서 부동소수점 반올림으로 경계가 흔들리지 않는다.
+        currentStat(204, 85, 217_000_000L, "HIGH");
+        bulkRenewal(204, 85, "202810", 18, 450_060_000L);
+        lease(204, 85, 520_000_000L, "202810", false, false);
+        lease(204, 85, 540_000_000L, "202810", false, false);
+
+        builder.build(SNAPSHOT, "202610");
+
+        Map<String, Object> f = forecastOf(204, 85, "202810");
+        assertThat(((Number) f.get("contract_count")).intValue()).isEqualTo(20);
+        assertThat(f.get("confidence")).isEqualTo(Confidence.LOW.name());
+    }
+
+    @Test
+    void 만기_그룹의_보증금이_제각각이면_10건_이상에서_여전히_HIGH다() {
+        // "항상 강등"이 되어서는 안 된다. 12건이 전부 다른 보증금이면 어느 값도 그룹을
+        // 지배하지 않으므로 규칙과 무관하고, 원래대로 HIGH여야 한다.
+        currentStat(205, 85, 400_000_000L, "HIGH");
+        leases(205, 85, "202612", 12);
+
+        builder.build(SNAPSHOT, "202610");
+
+        Map<String, Object> f = forecastOf(205, 85, "202612");
+        assertThat(((Number) f.get("contract_count")).intValue()).isEqualTo(12);
+        assertThat(f.get("confidence")).isEqualTo(Confidence.HIGH.name());
+    }
 }
