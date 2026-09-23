@@ -1,17 +1,11 @@
 package com.jeonseradar.metric.service;
 
 import com.jeonseradar.metric.entity.FlagType;
-import org.junit.jupiter.api.BeforeEach;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -19,19 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
-class DealFlagBuilderTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class DealFlagBuilderTest extends IntegrationTestSupport {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
     private static final LocalDate AS_OF = LocalDate.of(2026, 9, 22);
@@ -41,12 +23,6 @@ class DealFlagBuilderTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
-
-    @BeforeEach
-    void clean() {
-        jdbcTemplate.update("DELETE FROM deal_flag");
-        jdbcTemplate.update("DELETE FROM trade_deal");
-    }
 
     private void trade(String hash, LocalDate dealDate, LocalDate registeredDate,
                        String cancelYn, String dealType) {

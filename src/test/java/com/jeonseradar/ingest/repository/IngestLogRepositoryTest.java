@@ -3,16 +3,11 @@ package com.jeonseradar.ingest.repository;
 import com.jeonseradar.ingest.client.ApiType;
 import com.jeonseradar.ingest.entity.IngestLog;
 import com.jeonseradar.ingest.entity.IngestStatus;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 
@@ -26,20 +21,8 @@ import static org.assertj.core.api.Assertions.tuple;
 // 조용히 엉뚱한 값을 돌려준다. 이 테스트가 지금까지 유일하게 실제 DB에 대고 이 메서드를
 // 검증한다 — 기존 테스트는 전부 IngestLogRepository를 mock으로 대체해 왔다.
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
 @Transactional
-class IngestLogRepositoryTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class IngestLogRepositoryTest extends IntegrationTestSupport {
 
     @Autowired
     IngestLogRepository repository;

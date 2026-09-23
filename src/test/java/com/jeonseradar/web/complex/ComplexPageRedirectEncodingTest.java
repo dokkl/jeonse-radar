@@ -2,6 +2,7 @@ package com.jeonseradar.web.complex;
 
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.repository.MetricSnapshotRepository;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,13 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.util.UriUtils;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -44,19 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * DB이므로 외부 네트워크 호출이 아니다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
-@Testcontainers
-class ComplexPageRedirectEncodingTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class ComplexPageRedirectEncodingTest extends IntegrationTestSupport {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
 
@@ -86,11 +69,6 @@ class ComplexPageRedirectEncodingTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.update("DELETE FROM maturity_forecast");
-        jdbc.update("DELETE FROM complex_rent_stat");
-        jdbc.update("DELETE FROM complex");
-        snapshots.deleteAll();
-
         MetricSnapshot s = MetricSnapshot.start(SNAPSHOT);
         s.complete(1, 0, 0);
         snapshots.save(s);

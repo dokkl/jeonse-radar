@@ -2,18 +2,12 @@ package com.jeonseradar.web;
 
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.repository.MetricSnapshotRepository;
-import org.junit.jupiter.api.BeforeEach;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 
@@ -21,28 +15,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
 @ExtendWith(SpringExtension.class)
-class PublishedSnapshotTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class PublishedSnapshotTest extends IntegrationTestSupport {
 
     @Autowired PublishedSnapshot published;
     @Autowired MetricSnapshotRepository snapshots;
-
-    @BeforeEach
-    void clean() {
-        snapshots.deleteAll();
-    }
 
     @Test
     void 완료된_스냅샷이_없으면_예외를_던진다() {

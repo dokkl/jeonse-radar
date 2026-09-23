@@ -2,36 +2,19 @@ package com.jeonseradar.web.region;
 
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.repository.MetricSnapshotRepository;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
-class RegionPageQueryTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class RegionPageQueryTest extends IntegrationTestSupport {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
 
@@ -40,12 +23,7 @@ class RegionPageQueryTest {
     @Autowired MetricSnapshotRepository snapshots;
 
     @BeforeEach
-    void clean() {
-        jdbc.update("DELETE FROM maturity_forecast");
-        jdbc.update("DELETE FROM complex_rent_stat");
-        jdbc.update("DELETE FROM complex");
-        snapshots.deleteAll();
-
+    void 발행된_스냅샷을_심는다() {
         MetricSnapshot s = MetricSnapshot.start(SNAPSHOT);
         s.complete(1, 1, 0);
         snapshots.save(s);

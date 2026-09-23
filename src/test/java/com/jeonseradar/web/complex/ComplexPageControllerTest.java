@@ -2,19 +2,13 @@ package com.jeonseradar.web.complex;
 
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.repository.MetricSnapshotRepository;
-import org.junit.jupiter.api.BeforeEach;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 
@@ -27,33 +21,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
-@Testcontainers
-class ComplexPageControllerTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class ComplexPageControllerTest extends IntegrationTestSupport {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired MetricSnapshotRepository snapshots;
-
-    @BeforeEach
-    void clean() {
-        jdbc.update("DELETE FROM maturity_forecast");
-        jdbc.update("DELETE FROM complex_rent_stat");
-        jdbc.update("DELETE FROM complex");
-        snapshots.deleteAll();
-    }
 
     private void publishSnapshot() {
         MetricSnapshot s = MetricSnapshot.start(SNAPSHOT);

@@ -2,17 +2,12 @@ package com.jeonseradar.deal.repository;
 
 import com.jeonseradar.deal.entity.RentDeal;
 import com.jeonseradar.deal.entity.TradeDeal;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -25,20 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 // count()가 7이 되는 식). @Transactional을 클래스에 붙이면 Spring 테스트 트랜잭션 매니저가
 // 각 테스트 메서드 종료 후 자동 롤백해 테스트 간 격리를 보장한다 — 단정문 자체는 그대로 둔다.
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
 @Transactional
-class DealUpsertDaoTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class DealUpsertDaoTest extends IntegrationTestSupport {
 
     @Autowired
     DealUpsertDao dao;

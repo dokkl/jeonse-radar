@@ -1,17 +1,11 @@
 package com.jeonseradar.metric.service;
 
 import com.jeonseradar.metric.entity.Confidence;
-import org.junit.jupiter.api.BeforeEach;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -20,19 +14,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
-class MaturityForecastBuilderTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class MaturityForecastBuilderTest extends IntegrationTestSupport {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
 
@@ -41,13 +23,6 @@ class MaturityForecastBuilderTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
-
-    @BeforeEach
-    void clean() {
-        jdbcTemplate.update("DELETE FROM maturity_forecast");
-        jdbcTemplate.update("DELETE FROM complex_rent_stat");
-        jdbcTemplate.update("DELETE FROM rent_deal");
-    }
 
     /** 현재 시세를 직접 심는다. Task 2의 산출물을 흉내 내는 것이다. */
     private void currentStat(long complexId, int areaBucket, long median, String confidence) {

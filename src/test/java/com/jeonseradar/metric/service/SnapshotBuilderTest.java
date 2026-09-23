@@ -3,17 +3,11 @@ package com.jeonseradar.metric.service;
 import com.jeonseradar.metric.entity.MetricSnapshot;
 import com.jeonseradar.metric.entity.SnapshotStatus;
 import com.jeonseradar.metric.repository.MetricSnapshotRepository;
-import org.junit.jupiter.api.BeforeEach;
+import com.jeonseradar.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,19 +19,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@Testcontainers
-class SnapshotBuilderTest {
-
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
-
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
+class SnapshotBuilderTest extends IntegrationTestSupport {
 
     @Autowired
     SnapshotBuilder builder;
@@ -53,17 +35,6 @@ class SnapshotBuilderTest {
 
     @Autowired
     DealFlagBuilder dealFlagBuilder;
-
-    @BeforeEach
-    void clean() {
-        jdbcTemplate.update("DELETE FROM maturity_forecast");
-        jdbcTemplate.update("DELETE FROM complex_rent_stat");
-        jdbcTemplate.update("DELETE FROM deal_flag");
-        jdbcTemplate.update("DELETE FROM metric_snapshot");
-        jdbcTemplate.update("DELETE FROM rent_deal");
-        jdbcTemplate.update("DELETE FROM trade_deal");
-        jdbcTemplate.update("DELETE FROM complex");
-    }
 
     private void seedOneComplexWithLease() {
         jdbcTemplate.update(
