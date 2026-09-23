@@ -26,7 +26,10 @@ public class BackfillCommand implements ApplicationRunner {
             return;
         }
         var targets = planner.backfillTargets();
-        log.info("백필 시작: 대상 {}건", targets.size());
+        int total = planner.backfillTargetCount();
+        int skipped = total - targets.size();
+        log.info("백필 시작: 전체 대상 {}건 중 완료분 스킵 {}건, 처리 대상 {}건",
+                total, skipped, targets.size());
         var summary = runner.run(targets);
         log.info("백필 종료: {}", summary);
     }
