@@ -34,6 +34,11 @@ public class DealUpsertDao {
               updated_at      = NOW()
             """;
 
+    // 의도적으로 complex_id/updated_at만 갱신한다 — 스펙 §1.2가 명시하는 가변 필드는
+    // 등기일자/해제여부뿐이고 둘 다 거래(trade)측 필드다. 그 결과 매일의 3개월 재수집은
+    // 이미 저장된 rent 행의 contract_term_raw/term_end_ym/term_estimated/contract_type/
+    // prev_deposit을 절대 고치지 못한다 — 먼저 쓴 값이 영구히 이긴다. 지금 term_estimated로
+    // 표시된 183,923건은 원본이 나중에 채워져도 그대로 추정치로 남는다.
     private static final String RENT_SQL = """
             INSERT INTO rent_deal
               (deal_hash, complex_id, apt_seq, region_code, legal_dong, jibun, apt_name,

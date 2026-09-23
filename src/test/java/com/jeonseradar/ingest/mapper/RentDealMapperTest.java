@@ -27,7 +27,9 @@ class RentDealMapperTest {
     }
 
     private Map<String, String> item() {
-        // 실측 응답(rent-ok.xml)의 첫 item을 그대로 옮긴 값.
+        // 실측 응답(rent-ok.xml) 첫 item의 값을 기반으로 하되, contractTerm/contractType은
+        // 정상(비추정) 경로를 검증하기 위해 "26.03~28.03"/"신규"로 임의로 채워 넣었다 —
+        // 실측 원본은 두 필드 모두 빈 값(" ")이다.
         // 실측에서 contractTerm/useRRRight/preDeposit 은 값이 없을 때 " " 로 온다.
         Map<String, String> item = new HashMap<>();
         item.put(MolitFields.APT_SEQ, "11110-2519");
