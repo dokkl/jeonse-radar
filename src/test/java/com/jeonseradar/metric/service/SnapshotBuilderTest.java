@@ -207,4 +207,45 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
 
         assertThat(snapshotRepository.count()).isEqualTo(1);
     }
+
+    @Test
+    void 세_번째_스냅샷이_완료되면_가장_오래된_스냅샷의_집계_행만_지워지고_metric_snapshot_행은_남는다() {
+        // 원장: SnapshotBuilder.clearExisting은 그날의 행만 지우고, 지금까지 어떤 스냅샷도
+        // 지워진 적이 없었다 — 매 야간 빌드가 전체 행을 그대로 쌓았다. 최신 두 개(방금
+        // 완료된 것 + 롤백용으로 남겨야 하는 바로 이전 것)만 남기고 그보다 오래된 스냅샷의
+        // 집계 행은 지워져야 한다. 단, metric_snapshot 행 자체(감사 로그)는 남아야 한다.
+        LocalDate day1 = LocalDate.now().minusDays(2);
+        LocalDate day2 = LocalDate.now().minusDays(1);
+        LocalDate day3 = LocalDate.now();
+
+        seedOneComplexWithLease();
+        builder.build(day1);
+        builder.build(day2);
+        builder.build(day3);
+
+        assertThat(countRentStat(day1)).isZero();
+        assertThat(countMaturity(day1)).isZero();
+
+        // metric_snapshot 행 자체는 감사 로그이므로 지워지지 않는다.
+        assertThat(snapshotRepository.findBySnapshotDate(day1)).isPresent();
+
+        // 최신 두 스냅샷(방금 완료된 것 + 롤백용으로 남겨야 하는 바로 이전 것)의 집계 행은
+        // 살아있어야 한다.
+        assertThat(countRentStat(day2)).isEqualTo(1);
+        assertThat(countMaturity(day2)).isEqualTo(1);
+        assertThat(countRentStat(day3)).isEqualTo(1);
+        assertThat(countMaturity(day3)).isEqualTo(1);
+    }
+
+    private Integer countRentStat(LocalDate snapshotDate) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM complex_rent_stat WHERE snapshot_date = ?",
+                Integer.class, snapshotDate);
+    }
+
+    private Integer countMaturity(LocalDate snapshotDate) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM maturity_forecast WHERE snapshot_date = ?",
+                Integer.class, snapshotDate);
+    }
 }

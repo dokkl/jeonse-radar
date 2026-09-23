@@ -41,11 +41,18 @@ public class CoverageReporter {
     private static final Logger log = LoggerFactory.getLogger(CoverageReporter.class);
 
     public record CoverageReport(
-            long totalComplexes,
+            /** {@code complex_rent_stat}에 이번 스냅샷 행이 하나라도 있는 단지 수
+             *  (DISTINCT complex_id). "전체 단지"(complex 테이블 전체)가 아니다 — 시세
+             *  자체가 없는 단지는 분모에서 빠진다. {@link #indexableRatio}의 분모가 이 값이다. */
+            long pricedComplexes,
             long indexable,
             double indexableRatio,
             long maturityRows,
-            long lowConfidenceRows,
+            /** {@code complex_rent_stat}의 LOW 행수(평형 단위) — {@code maturity_forecast}의
+             *  LOW 행수와는 다른 테이블·다른 지표다. {@link #maturityRows}와 이름이 비슷하고
+             *  나란히 로그에 찍히면 "이 중 몇 개가 LOW냐"는 비율로 잘못 읽히기 쉬우니
+             *  혼동하지 말 것 (2026-09-23 커버리지 리포트에서 실제로 이렇게 잘못 읽혔다). */
+            long lowConfidenceStatRows,
             long flaggedDeals
     ) {
     }
@@ -67,7 +74,7 @@ public class CoverageReporter {
         }
         LocalDate d = snapshot.getSnapshotDate();
 
-        long total = count(
+        long pricedComplexes = count(
                 "SELECT COUNT(DISTINCT complex_id) FROM complex_rent_stat WHERE snapshot_date = ?", d);
         long indexable = count(
                 "SELECT COUNT(*) FROM complex c "
@@ -77,15 +84,21 @@ public class CoverageReporter {
                         + "AND (s.confidence IS NULL OR s.confidence <> 'LOW'))", d);
         long maturityRows = count(
                 "SELECT COUNT(*) FROM maturity_forecast WHERE snapshot_date = ?", d);
-        long lowRows = count(
+        long lowConfidenceStatRows = count(
                 "SELECT COUNT(*) FROM complex_rent_stat WHERE snapshot_date = ? AND confidence = 'LOW'", d);
         long flagged = count(
                 "SELECT COUNT(DISTINCT deal_hash) FROM deal_flag WHERE snapshot_date = ?", d);
 
-        double ratio = total == 0 ? 0.0 : (double) indexable / total;
+        double ratio = pricedComplexes == 0 ? 0.0 : (double) indexable / pricedComplexes;
         CoverageReport report = new CoverageReport(
-                total, indexable, ratio, maturityRows, lowRows, flagged);
-        log.info("발행 커버리지 ({}): {}", d, report);
+                pricedComplexes, indexable, ratio, maturityRows, lowConfidenceStatRows, flagged);
+        // 필드를 나열하는 대신 테이블별로 묶어서 찍는다 — maturityRows(maturity_forecast)와
+        // lowConfidenceStatRows(complex_rent_stat)를 나란히 찍으면 "이 중 몇 개가 LOW냐"는
+        // 비율로 잘못 읽힌다(2026-09-23 커버리지 리포트에서 실제로 그렇게 읽혔다). 두 값을
+        // 서로 다른 대괄호 그룹에 넣고 각자 출처 테이블을 명시해 그 오독을 막는다.
+        log.info("발행 커버리지 ({}): [complex_rent_stat] 시세보유단지 {}건, 색인가능 {}건(비율 {}), LOW {}행"
+                        + " | [maturity_forecast] {}행 | [deal_flag] 검증플래그(distinct deal_hash) {}건",
+                d, pricedComplexes, indexable, ratio, lowConfidenceStatRows, maturityRows, flagged);
         return report;
     }
 
