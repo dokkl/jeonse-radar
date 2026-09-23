@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${sido} + ' 역전세 현황'">시도</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
+  <link rel="canonical" th:href="${baseUrl} + ${canonicalPath}">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>

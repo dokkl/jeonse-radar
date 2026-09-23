@@ -87,7 +87,11 @@ class RegionPageControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("region"))
                 .andExpect(content().string(containsString("송파구")))
-                .andExpect(content().string(containsString("헬리오시티")));
+                .andExpect(content().string(containsString("헬리오시티")))
+                .andExpect(content().string(containsString(
+                        "<link rel=\"canonical\" href=\"http://localhost:8080"
+                                + "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C"
+                                + "/%EC%86%A1%ED%8C%8C%EA%B5%AC\">")));
     }
 
     @Test
@@ -125,6 +129,20 @@ class RegionPageControllerTest {
     }
 
     @Test
+    void 역전세_해당_계약의_LOW_신뢰도_비중을_카드_옆에_공개한다() throws Exception {
+        complexIn("11710", 1, "가단지");
+        complexIn("11710", 2, "나단지");
+        forecast(1, 100_000_000L, 5, "MEDIUM"); // 랭킹에 오름
+        forecast(2, 900_000_000L, 1, "LOW");    // 랭킹에서는 빠지지만 카드 집계엔 든다
+
+        mvc.perform(get("/역전세/서울특별시/송파구"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("신뢰도가 LOW")))
+                .andExpect(content().string(containsString("1건")))
+                .andExpect(content().string(containsString("17%")));
+    }
+
+    @Test
     void 시도_인덱스가_그_시도의_시군구를_나열한다() throws Exception {
         complexIn("11710", 1, "가단지");
         complexIn("11680", 2, "나단지");
@@ -135,7 +153,18 @@ class RegionPageControllerTest {
                 .andExpect(view().name("sido"))
                 .andExpect(content().string(containsString("송파구")))
                 .andExpect(content().string(containsString("강남구")))
-                .andExpect(content().string(not(containsString("장안구"))));
+                .andExpect(content().string(not(containsString("장안구"))))
+                .andExpect(content().string(containsString(
+                        "<link rel=\"canonical\" href=\"http://localhost:8080"
+                                + "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C\">")));
+    }
+
+    @Test
+    void 스냅샷이_없으면_시도_인덱스도_503이다() throws Exception {
+        // clean()이 COMPLETE 스냅샷을 심어 두므로, 관문이 없는 상태를 보려면 지운다.
+        snapshots.deleteAll();
+
+        mvc.perform(get("/역전세/서울특별시")).andExpect(status().isServiceUnavailable());
     }
 
     @Test

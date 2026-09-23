@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${page.title()}">단지</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
-  <link rel="canonical" th:href="${page.path()}">
+  <link rel="canonical" th:href="${baseUrl} + ${page.path()}">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -51,14 +51,15 @@
       <th>갭</th><th>갱신권 소진</th><th>신뢰도</th></tr>
     </thead>
     <tbody>
-    <tr th:each="m : ${page.maturities()}">
+    <tr th:each="m : ${page.maturities()}"
+        th:with="estSuffix=${m.estimatedCount() > 0} ? (' (추정 ' + ${m.estimatedCount()} + '건)') : ''">
       <td th:text="${#strings.substring(m.maturityYm(),0,4)} + '.' + ${#strings.substring(m.maturityYm(),4,6)}">2026.12</td>
       <td th:text="${m.areaBucket()}">84</td>
-      <td th:text="${m.contractCount()} + '건'">0</td>
-      <td th:text="${#numbers.formatInteger(m.medianDepositThen() / 10000, 0, 'COMMA')}">0</td>
-      <td th:text="${#numbers.formatInteger(m.currentMedianDeposit() / 10000, 0, 'COMMA')}">0</td>
+      <td th:text="${m.contractCount()} + '건' + ${estSuffix}">0</td>
+      <td th:text="${#numbers.formatInteger(m.medianDepositThen() / 10000, 0, 'COMMA')} + '만원'">0</td>
+      <td th:text="${#numbers.formatInteger(m.currentMedianDeposit() / 10000, 0, 'COMMA')} + '만원'">0</td>
       <td th:classappend="${m.gapAmount() > 0} ? 'gap-pos' : 'gap-neg'"
-          th:text="(${m.gapAmount() > 0} ? '+' : '') + ${#numbers.formatInteger(m.gapAmount() / 10000, 0, 'COMMA')}">0</td>
+          th:text="(${m.gapAmount() > 0} ? '+' : '') + ${#numbers.formatInteger(m.gapAmount() / 10000, 0, 'COMMA')} + '만원'">0</td>
       <td th:text="${m.renewalExhaustedCount()} + '건'">0</td>
       <td><span class="conf" th:classappend="'conf-' + ${m.confidence()}"
                 th:text="${m.confidence()}">LOW</span></td>
@@ -68,7 +69,9 @@
   <p class="muted">
     갭은 <b>당시 보증금 − 현재 시세</b>입니다. 양수(빨강)는 만기에 집주인이 돌려줘야 할
     차액이 있다는 뜻입니다. 계약 건수가 적으면 당시 보증금이 중위값이 아니라 그 한 건의
-    가격이므로, 신뢰도를 그만큼 낮춰 표시합니다.
+    가격이므로, 신뢰도를 그만큼 낮춰 표시합니다. 계약 건수 옆의 "추정 N건"은 계약서에
+    계약기간이 없어 계약일+24개월로 만기를 추정한 건수입니다 — 실제 계약서상 만기가
+    아니라 가정값이니 참고만 하세요.
   </p>
 </div>
 </body>

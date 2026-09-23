@@ -2,13 +2,16 @@ package com.jeonseradar.web.region;
 
 import com.jeonseradar.region.RegionName;
 import com.jeonseradar.region.SigunguCatalog;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,10 +20,13 @@ public class RegionPageController {
 
     private final RegionPageQuery query;
     private final SigunguCatalog catalog;
+    private final String baseUrl;
 
-    public RegionPageController(RegionPageQuery query, SigunguCatalog catalog) {
+    public RegionPageController(RegionPageQuery query, SigunguCatalog catalog,
+                                 @Value("${jeonse.base-url:https://example.invalid}") String baseUrl) {
         this.query = query;
         this.catalog = catalog;
+        this.baseUrl = baseUrl;
     }
 
     @GetMapping("/역전세/{sido}")
@@ -41,6 +47,8 @@ public class RegionPageController {
         model.addAttribute("sido", sido);
         model.addAttribute("regions", names);
         model.addAttribute("robots", null);
+        model.addAttribute("baseUrl", baseUrl);
+        model.addAttribute("canonicalPath", UriUtils.encodePath("/역전세/" + sido, StandardCharsets.UTF_8));
         return "sido";
     }
 
@@ -56,6 +64,7 @@ public class RegionPageController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         model.addAttribute("page", page);
         model.addAttribute("robots", page.indexable() ? null : "noindex, follow");
+        model.addAttribute("baseUrl", baseUrl);
         return "region";
     }
 

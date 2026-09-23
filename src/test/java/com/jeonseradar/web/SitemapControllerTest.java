@@ -45,34 +45,6 @@ class SitemapControllerTest {
 
     private static final LocalDate SNAPSHOT = LocalDate.of(2026, 9, 22);
 
-    /**
-     * {@code complexWith}/{@code jdbc.update(...)}이 심는 slug("c{id}-11710-1")로부터 실제로
-     * 나오는 퍼센트 인코딩된 전체 경로. 조각(fragment)이나 {@code UriUtils.encodePath} 재호출이
-     * 아니라 리터럴이다 — id 1의 값은 실제 실패한 테스트 실행 출력
-     * ({@code <loc>http://localhost:8080/%EB%8B%A8%EC%A7%80/1-c1-11710-1</loc>})에서 그대로
-     * 가져왔고, 나머지는 "단지"만 한글이고 그 뒤는 전부 ASCII(id·하이픈·slug)인 같은 모양이라
-     * 프리픽스 {@code /%EB%8B%A8%EC%A7%80/}만 고정하면 안전하다 (원장 P3-7: 예전에는 이 자리에
-     * "/c{id}-11710-1"처럼 id 접두어가 빠진 조각을 썼다가 실제 출력과 어긋났다).
-     */
-    private static final java.util.Map<Long, String> COMPLEX_PATH = java.util.Map.of(
-            1L, "/%EB%8B%A8%EC%A7%80/1-c1-11710-1",
-            2L, "/%EB%8B%A8%EC%A7%80/2-c2-11710-1",
-            3L, "/%EB%8B%A8%EC%A7%80/3-c3-11710-1",
-            4L, "/%EB%8B%A8%EC%A7%80/4-c4-11710-1",
-            5L, "/%EB%8B%A8%EC%A7%80/5-c5-11710-1");
-
-    /**
-     * {@code complexInRegion}/{@code complexWith}이 쓰는 지역코드들의 실제 전체 경로 리터럴
-     * (원장 P3-7). "역전세" 접두어만 확인하는 조각 검사는 —id 접두어가 없는 지역 경로라
-     * 복합_단지처럼 "빠진 접두어" 결함은 없지만— 어느 지역인지는 구분하지 못하므로, 같은
-     * 원칙(리터럴을 통째로 고정한다)을 지역에도 적용해 시도·시군구까지 통째로 고정한다.
-     */
-    private static final java.util.Map<String, String> REGION_PATH = java.util.Map.of(
-            "11710", "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C/%EC%86%A1%ED%8C%8C%EA%B5%AC",
-            "11680", "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C/%EA%B0%95%EB%82%A8%EA%B5%AC",
-            "11650", "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C/%EC%84%9C%EC%B4%88%EA%B5%AC",
-            "11620", "/%EC%97%AD%EC%A0%84%EC%84%B8/%EC%84%9C%EC%9A%B8%ED%8A%B9%EB%B3%84%EC%8B%9C/%EA%B4%80%EC%95%85%EA%B5%AC");
-
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired MetricSnapshotRepository snapshots;
@@ -138,8 +110,9 @@ class SitemapControllerTest {
 
         mvc.perform(get("/sitemap.xml"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString(COMPLEX_PATH.get(1L))))
-                .andExpect(content().string(not(containsString(COMPLEX_PATH.get(2L)))));
+                .andExpect(content().string(containsString(complexPageQuery.find(1L).orElseThrow().path())))
+                .andExpect(content().string(
+                        not(containsString(complexPageQuery.find(2L).orElseThrow().path()))));
     }
 
     @Test
@@ -147,7 +120,8 @@ class SitemapControllerTest {
         complexWith(1, "(828-76)", "HIGH");
 
         mvc.perform(get("/sitemap.xml"))
-                .andExpect(content().string(not(containsString(COMPLEX_PATH.get(1L)))));
+                .andExpect(content().string(
+                        not(containsString(complexPageQuery.find(1L).orElseThrow().path()))));
     }
 
     @Test
@@ -158,7 +132,8 @@ class SitemapControllerTest {
         forecast(1, 100_000_000L, 5, "MEDIUM");
 
         mvc.perform(get("/sitemap.xml"))
-                .andExpect(content().string(containsString(REGION_PATH.get("11710"))));
+                .andExpect(content().string(
+                        containsString(regionPageQuery.find("11710").orElseThrow().path())));
     }
 
     @Test
@@ -169,7 +144,8 @@ class SitemapControllerTest {
         complexWith(1, "헬리오시티", "HIGH");
 
         mvc.perform(get("/sitemap.xml"))
-                .andExpect(content().string(not(containsString(REGION_PATH.get("11710")))));
+                .andExpect(content().string(
+                        not(containsString(regionPageQuery.find("11710").orElseThrow().path()))));
     }
 
     @Test
@@ -192,8 +168,9 @@ class SitemapControllerTest {
                 .getResponse().getContentAsString();
 
         for (String code : java.util.List.of("11710", "11680", "11650", "11620")) {
-            boolean inSitemap = xml.contains(REGION_PATH.get(code));
-            boolean indexable = regionPageQuery.find(code).orElseThrow().indexable();
+            com.jeonseradar.web.region.RegionPage regionPage = regionPageQuery.find(code).orElseThrow();
+            boolean inSitemap = xml.contains(regionPage.path());
+            boolean indexable = regionPage.indexable();
             org.assertj.core.api.Assertions.assertThat(inSitemap)
                     .as("지역 %s — sitemap 수록과 indexable()이 달라졌다", code)
                     .isEqualTo(indexable);
@@ -219,8 +196,9 @@ class SitemapControllerTest {
                 .getResponse().getContentAsString();
 
         for (long id = 1; id <= 5; id++) {
-            boolean inSitemap = xml.contains(COMPLEX_PATH.get(id));
-            boolean indexable = complexPageQuery.find(id).orElseThrow().indexable();
+            com.jeonseradar.web.complex.ComplexPage complexPage = complexPageQuery.find(id).orElseThrow();
+            boolean inSitemap = xml.contains(complexPage.path());
+            boolean indexable = complexPage.indexable();
             org.assertj.core.api.Assertions.assertThat(inSitemap)
                     .as("단지 %d — sitemap 수록과 indexable()이 달라졌다", id)
                     .isEqualTo(indexable);

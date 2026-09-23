@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:text="${page.title()}">지역</title>
   <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
-  <link rel="canonical" th:href="${page.path()}">
+  <link rel="canonical" th:href="${baseUrl} + ${page.path()}">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -22,6 +22,12 @@
     <div class="card"><span class="muted">역전세 해당 계약</span>
       <b th:text="${#numbers.formatInteger(page.negativeGapContracts(),0,'COMMA')}">0</b></div>
   </div>
+  <p class="muted" th:if="${page.negativeGapContracts() > 0}">
+    역전세 해당 계약은 신뢰도로 거르지 않은 전체 건수입니다. 그중
+    <b th:text="${#numbers.formatInteger(page.negativeGapLowConfidenceContracts(),0,'COMMA')} + '건'">0건</b>
+    (<span th:text="${page.negativeGapLowConfidencePercent()} + '%'">0%</span>)은 신뢰도가 LOW입니다 —
+    표본이 적어 당시 보증금이 중위값이 아니라 개별 계약가 하나일 수 있다는 뜻입니다.
+  </p>
 
   <h2>역전세 갭이 큰 단지</h2>
   <p class="muted" th:if="${page.ranking().isEmpty()}">

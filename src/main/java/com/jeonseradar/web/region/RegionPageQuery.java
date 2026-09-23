@@ -38,9 +38,13 @@ public class RegionPageQuery {
         }
 
         // 요약은 랭킹 필터를 적용하지 않는다. 거르는 것은 목록이지 사실이 아니다.
+        // negative_low는 그 요약 숫자의 구성 공개용이다 (원장 R-8) — 무엇을 세는지는 그대로
+        // 두고, 그 안에 신뢰도 LOW가 얼마나 섞여 있는지만 옆에 더 알려준다.
         Map<String, Object> summary = jdbc.queryForMap("""
                 SELECT COALESCE(SUM(f.contract_count), 0) total,
-                       COALESCE(SUM(CASE WHEN f.gap_amount > 0 THEN f.contract_count ELSE 0 END), 0) negative
+                       COALESCE(SUM(CASE WHEN f.gap_amount > 0 THEN f.contract_count ELSE 0 END), 0) negative,
+                       COALESCE(SUM(CASE WHEN f.gap_amount > 0 AND f.confidence = 'LOW'
+                                          THEN f.contract_count ELSE 0 END), 0) negative_low
                 FROM maturity_forecast f JOIN complex c ON c.id = f.complex_id
                 WHERE f.snapshot_date = ? AND c.region_code = ?
                 """, snapshotDate, regionCode);
@@ -81,11 +85,21 @@ public class RegionPageQuery {
                 complexCount,
                 ((Number) summary.get("total")).longValue(),
                 ((Number) summary.get("negative")).longValue(),
+                ((Number) summary.get("negative_low")).longValue(),
                 rows));
     }
 
-    /** 시도 인덱스 페이지용. 단지가 실제로 있는 시군구만 준다. */
+    /**
+     * 시도 인덱스 페이지용. 단지가 실제로 있는 시군구만 준다.
+     *
+     * <p>{@code find()}처럼 발행 관문을 먼저 통과해야 한다 (원장 R-6). 이 메서드 자체는
+     * 스냅샷 날짜로 걸러 조회하지 않지만, 관문을 안 거치면 COMPLETE 스냅샷이 하나도 없는
+     * 상태에서도 시도 인덱스가 200으로 자식 시군구 240개를 링크해 버리고, 그 자식들은
+     * 전부 503이라 크롤러가 빈 사이트를 색인하게 된다.
+     */
     public List<String> sigunguCodesOf(String sido) {
+        published.date();
+
         List<String> codes = jdbc.queryForList(
                 "SELECT DISTINCT region_code FROM complex ORDER BY region_code", String.class);
         return codes.stream()

@@ -29,7 +29,7 @@ molit:
     trade-months: 24
 
 jeonse:
-  base-url: http://localhost:8080
+  base-url: ${SITE_BASE_URL:http://localhost:8080}
   ranking:
     min-contract-count: 3
     min-confidence: MEDIUM

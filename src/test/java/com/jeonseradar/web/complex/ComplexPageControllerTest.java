@@ -95,7 +95,9 @@ class ComplexPageControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("complex"))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("헬리오시티")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("전세 만기·역전세 현황")));
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("전세 만기·역전세 현황")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "<link rel=\"canonical\" href=\"http://localhost:8080/%EB%8B%A8%EC%A7%80/1-helio-11710-1\">")));
     }
 
     @Test
@@ -132,5 +134,43 @@ class ComplexPageControllerTest {
         mvc.perform(get("/단지/1-helio-11710-1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("noindex")));
+    }
+
+    private void maturity(int contracts, int estimated, long depositThen, long currentDeposit, long gap) {
+        jdbc.update("""
+                INSERT INTO maturity_forecast (snapshot_date, complex_id, area_bucket, maturity_ym,
+                        contract_count, estimated_count, median_deposit_then, current_median_deposit,
+                        gap_amount, gap_rate, renewal_exhausted_count, confidence)
+                VALUES (?, 1, 84, '202612', ?, ?, ?, ?, ?, 0.1, 2, 'HIGH')
+                """, SNAPSHOT, contracts, estimated, depositThen, currentDeposit, gap);
+    }
+
+    @Test
+    void 추정_만기가_섞인_계약_건수와_금액_단위가_표시된다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        maturity(12, 3, 1_000_000_000L, 900_000_000L, 100_000_000L);
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("12건 (추정 3건)")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("100,000만원")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("90,000만원")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("+10,000만원")));
+    }
+
+    @Test
+    void 추정_만기가_없으면_행에_추정_문구를_붙이지_않는다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        maturity(5, 0, 1_000_000_000L, 900_000_000L, 100_000_000L);
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("5건")))
+                // 설명 문구는 표에 추정이 하나라도 있을 수 있다는 일반 안내라 항상 떠 있다 —
+                // 여기서 검증하는 건 "5건" 뒤에 "(추정"이 붙지 않는다는 행 단위 표시다.
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("5건 (추정"))));
     }
 }

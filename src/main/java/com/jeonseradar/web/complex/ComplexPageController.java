@@ -1,5 +1,6 @@
 package com.jeonseradar.web.complex;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -12,9 +13,12 @@ import org.springframework.web.servlet.view.RedirectView;
 public class ComplexPageController {
 
     private final ComplexPageQuery query;
+    private final String baseUrl;
 
-    public ComplexPageController(ComplexPageQuery query) {
+    public ComplexPageController(ComplexPageQuery query,
+                                  @Value("${jeonse.base-url:https://example.invalid}") String baseUrl) {
         this.query = query;
+        this.baseUrl = baseUrl;
     }
 
     /**
@@ -37,6 +41,7 @@ public class ComplexPageController {
 
         model.addAttribute("page", page);
         model.addAttribute("robots", page.indexable() ? null : "noindex, follow");
+        model.addAttribute("baseUrl", baseUrl);
         return "complex";
     }
 

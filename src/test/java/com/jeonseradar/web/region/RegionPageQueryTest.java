@@ -147,6 +147,22 @@ class RegionPageQueryTest {
     }
 
     @Test
+    void 요약은_LOW_신뢰도_구성도_같이_준다() {
+        complex(1, "11710", "가단지");
+        complex(2, "11710", "나단지");
+        complex(3, "11710", "다단지");
+        forecast(1, "202612", 100_000_000L, 5, "MEDIUM"); // 역전세, MEDIUM
+        forecast(2, "202612", 900_000_000L, 1, "LOW");     // 역전세, LOW
+        forecast(3, "202612", -900_000_000L, 5, "LOW");    // 역전세 아님(갭 음수) — 분자에서 빠져야 한다
+
+        RegionPage page = query.find("11710").orElseThrow();
+
+        assertThat(page.negativeGapContracts()).isEqualTo(6);
+        assertThat(page.negativeGapLowConfidenceContracts()).isEqualTo(1);
+        assertThat(page.negativeGapLowConfidencePercent()).isEqualTo(17); // 1/6 반올림
+    }
+
+    @Test
     void 시도의_시군구_코드를_준다() {
         complex(1, "11710", "가단지");
         complex(2, "11680", "나단지");

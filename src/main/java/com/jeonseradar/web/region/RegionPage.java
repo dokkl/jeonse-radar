@@ -13,6 +13,7 @@ public record RegionPage(
         int complexCount,
         long totalMaturityContracts,
         long negativeGapContracts,
+        long negativeGapLowConfidenceContracts,
         List<RankRow> ranking) {
 
     public record RankRow(
@@ -47,5 +48,19 @@ public record RegionPage(
     /** 랭킹에 올릴 게 하나도 없는 지역은 색인하지 않는다. */
     public boolean indexable() {
         return !ranking.isEmpty();
+    }
+
+    /**
+     * {@code negativeGapContracts} 중 신뢰도가 LOW인 비율(0~100, 정수 반올림).
+     *
+     * "역전세 해당 계약" 카드는 랭킹 필터 없이 전체를 센다 — 목록을 거르는 것과 사실을
+     * 거르는 것은 다르기 때문이다. 그런데 전국 기준 그 계약의 60.8%가 LOW 신뢰도라, 필터
+     * 없이 튼 숫자를 그대로만 보여주면 정밀도를 실제보다 부풀려 전달한다. 카드가 세는
+     * 값은 바꾸지 않고, 그 구성을 옆에 밝힌다.
+     */
+    public int negativeGapLowConfidencePercent() {
+        return negativeGapContracts == 0
+                ? 0
+                : (int) Math.round(negativeGapLowConfidenceContracts * 100.0 / negativeGapContracts);
     }
 }
