@@ -40,18 +40,43 @@ public class RentStatBuilder {
         return inserted;
     }
 
-    /** L1: 같은 단지·평형의 최근 6개월 보증금 중위값. */
+    /**
+     * L1: 같은 단지·평형의 최근 6개월 보증금 중위값.
+     *
+     * F-31: 대형 임대사업자(공공지원 민간임대 등)가 수백 세대를 행정적으로 정해진 단일
+     * 보증금으로 한꺼번에 갱신하면, 그 값이 시장 거래가 아님에도 그룹을 지배해 중위값을
+     * 왜곡한다. 그룹의 거래가 10건 이상이면서 그중 한 보증금 값이 90% 이상을 차지하면,
+     * 그 값의 거래를 중위값 계산에서만 제외한다(원본 rent_deal은 그대로 둔다).
+     * 90% 비교는 부동소수점 오차를 피하려고 dep_cnt*10 >= grp_cnt*9 정수 비교로 한다.
+     * 제외 후 표본이 3건 미만으로 얇아지면 sample_count가 그만큼 줄어 아래 CASE가
+     * 자동으로 LOW를 매긴다 — 별도 분기가 필요 없다.
+     */
     private int insertL1(LocalDate snapshotDate, LocalDate windowStart, LocalDate asOf) {
         String sql = """
                 INSERT INTO complex_rent_stat
                   (snapshot_date, complex_id, area_bucket, median_deposit, sample_count,
                    source_level, confidence)
-                WITH ranked AS (
+                WITH base AS (
+                  SELECT complex_id, area_bucket, deposit
+                  FROM rent_deal
+                  WHERE monthly_rent = 0 AND deal_date >= ? AND deal_date <= ?
+                ),
+                counted AS (
+                  SELECT complex_id, area_bucket, deposit,
+                         COUNT(*) OVER (PARTITION BY complex_id, area_bucket)          grp_cnt,
+                         COUNT(*) OVER (PARTITION BY complex_id, area_bucket, deposit) dep_cnt
+                  FROM base
+                ),
+                cleaned AS (
+                  SELECT complex_id, area_bucket, deposit
+                  FROM counted
+                  WHERE NOT (grp_cnt >= 10 AND dep_cnt * 10 >= grp_cnt * 9)
+                ),
+                ranked AS (
                   SELECT complex_id, area_bucket, deposit,
                          ROW_NUMBER() OVER (PARTITION BY complex_id, area_bucket ORDER BY deposit) rn,
                          COUNT(*)     OVER (PARTITION BY complex_id, area_bucket)                  cnt
-                  FROM rent_deal
-                  WHERE monthly_rent = 0 AND deal_date >= ? AND deal_date <= ?
+                  FROM cleaned
                 )
                 SELECT ?, complex_id, area_bucket,
                        CAST(AVG(deposit) AS SIGNED), MAX(cnt), 'L1',

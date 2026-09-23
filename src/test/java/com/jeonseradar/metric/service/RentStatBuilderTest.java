@@ -276,8 +276,14 @@ class RentStatBuilderTest {
     @Test
     void 표본_10건_이상의_L1은_HIGH다() {
         complex(9, "11680", "역삼동");
-        for (int i = 0; i < 12; i++) {
+        // F-31 규칙과 무관함을 보장하려고 보증금을 절반씩 나눈다(50%/50% — 90% 문턱에
+        // 한참 못 미친다). 전부 동일한 값이면 이 자체가 F-31이 잡아야 할 대량 갱신
+        // 패턴이 되어버려, 원래 의도(표본 10건 이상이면 HIGH)를 검증할 수 없다.
+        for (int i = 0; i < 6; i++) {
             rent(9, "11680", "역삼동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        for (int i = 0; i < 6; i++) {
+            rent(9, "11680", "역삼동", 85, 510_000_000L, LocalDate.of(2026, 8, 1));
         }
 
         builder.build(SNAPSHOT, AS_OF);
@@ -349,5 +355,135 @@ class RentStatBuilderTest {
                 "SELECT COUNT(*) FROM complex_rent_stat WHERE complex_id = 11 AND area_bucket = 85",
                 Integer.class);
         assertThat(n).isEqualTo(1);
+    }
+
+    // ---- F-31: 대형 임대사업자의 일괄 갱신(단일 보증금 값이 그룹을 지배)이 L1
+    //      중위값을 왜곡하는 문제. 거래 10건 이상 + 한 보증금 값이 90% 이상이면
+    //      그 값의 거래를 중위값 계산에서 제외한다. ----
+
+    @Test
+    void 오염된_그룹은_지배적_보증금을_제외한_나머지로_중위값을_계산한다() {
+        complex(60, "11680", "신사동");
+        // 대형 임대사업자의 일괄 갱신: 27건이 전부 같은 보증금(행정가) — 90% 정확히.
+        for (int i = 0; i < 27; i++) {
+            rent(60, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        // 진짜 시장 거래 3건
+        rent(60, "11680", "신사동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(60, "11680", "신사동", 85, 520_000_000L, LocalDate.of(2026, 8, 1));
+        rent(60, "11680", "신사동", 85, 540_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(60, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L1.name());
+        // 지배적 보증금(9억)이 아니라 진짜 시장 거래 3건의 중위값(5.2억)이어야 한다.
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(520_000_000L);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(3);
+        assertThat(stat.get("confidence")).isEqualTo(Confidence.MEDIUM.name());
+    }
+
+    @Test
+    void 표본이_9건이면_지배적_보증금이_있어도_제외되지_않는다() {
+        complex(61, "11680", "신사동");
+        // 9건 전부 동일 — 집중도는 100%지만 표본이 10건 미만이라 규칙이 적용되지 않는다.
+        for (int i = 0; i < 9; i++) {
+            rent(61, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(61, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(9);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(900_000_000L);
+    }
+
+    @Test
+    void 표본이_10건이면_지배적_보증금을_제외한다() {
+        complex(62, "11680", "신사동");
+        // 같은 집중 패턴(9건 동일)에 1건만 더해 표본을 10건으로 만들면 규칙이 켜져야 한다.
+        for (int i = 0; i < 9; i++) {
+            rent(62, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        rent(62, "11680", "신사동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(62, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(500_000_000L);
+    }
+
+    @Test
+    void 집중도가_90퍼센트_미만이면_제외되지_않는다() {
+        complex(63, "11680", "신사동");
+        // 17/20 = 85% — 10건 이상이지만 90%에 못 미쳐 그대로 둔다.
+        for (int i = 0; i < 17; i++) {
+            rent(63, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        rent(63, "11680", "신사동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(63, "11680", "신사동", 85, 520_000_000L, LocalDate.of(2026, 8, 1));
+        rent(63, "11680", "신사동", 85, 540_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(63, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(20);
+        // 제외되지 않았으므로 20건 전체 기준 중위값(지배적 값인 9억)이 그대로 나온다.
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(900_000_000L);
+    }
+
+    @Test
+    void 집중도가_정확히_90퍼센트면_제외된다() {
+        complex(64, "11680", "신사동");
+        // 18/20 = 90% 정확히 — 경계값이므로 제외되어야 한다.
+        for (int i = 0; i < 18; i++) {
+            rent(64, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        rent(64, "11680", "신사동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(64, "11680", "신사동", 85, 520_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(64, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(2);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(510_000_000L);
+    }
+
+    @Test
+    void 제외_후_표본이_3건_미만이면_confidence가_LOW로_강등된다() {
+        complex(65, "11680", "신사동");
+        for (int i = 0; i < 9; i++) {
+            rent(65, "11680", "신사동", 85, 900_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        // 제외 후 남는 진짜 거래는 1건뿐 — 표본이 얇아졌으니 LOW로 강등돼야 한다.
+        rent(65, "11680", "신사동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(65, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(1);
+        assertThat(stat.get("confidence")).isEqualTo(Confidence.LOW.name());
+    }
+
+    @Test
+    void 일반적인_그룹은_기존과_동일한_중위값을_유지한다() {
+        complex(66, "11680", "신사동");
+        // 12건, 전부 다른 보증금 — 어느 값도 그룹을 지배하지 않으므로 규칙과 무관하다.
+        long[] deposits = {
+                500_000_000L, 510_000_000L, 520_000_000L, 530_000_000L,
+                540_000_000L, 550_000_000L, 560_000_000L, 570_000_000L,
+                580_000_000L, 590_000_000L, 600_000_000L, 610_000_000L
+        };
+        for (long deposit : deposits) {
+            rent(66, "11680", "신사동", 85, deposit, LocalDate.of(2026, 8, 1));
+        }
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(66, 85);
+        assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(12);
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(555_000_000L);
+        assertThat(stat.get("confidence")).isEqualTo(Confidence.HIGH.name());
     }
 }
