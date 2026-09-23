@@ -109,6 +109,19 @@ class IngestTargetPlannerTest {
         assertThat(tradeCount).isEqualTo((long) regions * 24);
     }
 
+    @Test
+    void 백필_대상_건수는_필터링_전_전체_나열_크기와_같다() {
+        // backfillTargetCount()는 DB 조회 없이 catalog.all().size() * (rent+trade)로
+        // 계산해, BackfillCommand가 "스킵 N건 / 처리 M건" 로그의 모수(N+M)로 쓴다. 이
+        // 값이 enumerate()가 실제로 만드는 전체 나열 크기와 어긋나면 아무것도 깨지지
+        // 않은 채 운영 로그만 조용히 잘못된 숫자를 찍는다 — 원래 결함이 들키지 않았던
+        // 방식 그대로다. setUp()에서 findKeysByStatus(SUCCESS)를 빈 목록으로 세팅해
+        // 두었으므로, 여기서 backfillTargets()는 필터링 전 전체 나열과 동일하다.
+        List<IngestTargetPlanner.IngestTarget> allTargets = planner.backfillTargets();
+
+        assertThat(planner.backfillTargetCount()).isEqualTo(allTargets.size());
+    }
+
     // 아래부터는 "재실행하면 이미 SUCCESS인 대상까지 전부 다시 긁는다" 결함에 대한
     // 회귀 테스트다 (2026-09-23 오전 실측: 대상 16140건을 그대로 다시 돌려 9분 만에
     // 이미 SUCCESS였던 290건을 재수집하고 킬됨). PENDING/FAILED/미기록은 계속
