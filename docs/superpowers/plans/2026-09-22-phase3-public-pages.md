@@ -1457,15 +1457,24 @@ public record RegionPage(
             int areaBucket, String maturityYm, int contractCount,
             long gapAmount, double gapRate, int renewalExhaustedCount, String confidence) {
 
+        /** 인코딩 이유는 RegionPage.path() 주석 참고 (원장 P3-3). */
         public String path() {
-            return "/단지/" + complexId + "-" + slug;
+            return org.springframework.web.util.UriUtils.encodePath(
+                    "/단지/" + complexId + "-" + slug, java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 
+    /**
+     * 퍼센트 인코딩된 경로. HTTP 헤더는 ISO-8859-1이라 한글을 날것으로 넣으면
+     * 톰캣이 Location 헤더를 통째로 버린다 (원장 P3-3, 실앱에서 실제로 발생).
+     * sitemap과 canonical 링크도 같은 값을 쓰므로 여기서 한 번만 인코딩한다.
+     * URLEncoder는 공백을 +로, /를 %2F로 바꾸므로 경로에 쓰면 안 된다.
+     */
     public String path() {
-        return sigunguSegment == null
+        String raw = sigunguSegment == null
                 ? "/역전세/" + sidoSegment
                 : "/역전세/" + sidoSegment + "/" + sigunguSegment;
+        return org.springframework.web.util.UriUtils.encodePath(raw, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public String title() {
@@ -1912,9 +1921,12 @@ public class RegionPageController {
 <body>
 <div class="wrap">
   <h1 th:text="${sido} + ' 전세 만기·역전세 현황'">시도</h1>
+  <!-- th:href는 UriUtils가 아니라 Thymeleaf가 인코딩한다. HTML 본문의 href는
+       UTF-8이라 한글이 그대로 있어도 브라우저가 처리하지만, 일관성을 위해
+       Location·sitemap과 같은 형태를 쓴다 (원장 P3-3). -->
   <ul class="sigungu">
     <li th:each="r : ${regions}">
-      <a th:href="'/역전세/' + ${r.sidoSegment()} + '/' + ${r.sigunguSegment()}"
+      <a th:href="@{/역전세/{sido}/{sigungu}(sido=${r.sidoSegment()}, sigungu=${r.sigunguSegment()})}"
          th:text="${r.displayName()}">시군구</a>
     </li>
   </ul>
@@ -2154,16 +2166,20 @@ public class SitemapController {
                     WHERE s.snapshot_date = ? AND s.complex_id = c.id AND s.confidence <> 'LOW')
                 ORDER BY c.id
                 """,
-                (rs, n) -> "/단지/" + rs.getLong("id") + "-" + rs.getString("slug"),
+                (rs, n) -> org.springframework.web.util.UriUtils.encodePath(
+                        "/단지/" + rs.getLong("id") + "-" + rs.getString("slug"),
+                        java.nio.charset.StandardCharsets.UTF_8),
                 snapshotDate);
 
         List<String> regionPaths = jdbc.queryForList(
                         "SELECT DISTINCT region_code FROM complex ORDER BY region_code", String.class)
                 .stream()
                 .map(code -> RegionName.of(code, catalog.nameOf(code)))
-                .map(n -> n.hasSigungu()
-                        ? "/역전세/" + n.sidoSegment() + "/" + n.sigunguSegment()
-                        : "/역전세/" + n.sidoSegment())
+                .map(n -> org.springframework.web.util.UriUtils.encodePath(
+                        n.hasSigungu()
+                                ? "/역전세/" + n.sidoSegment() + "/" + n.sigunguSegment()
+                                : "/역전세/" + n.sidoSegment(),
+                        java.nio.charset.StandardCharsets.UTF_8))
                 .distinct()
                 .toList();
 
