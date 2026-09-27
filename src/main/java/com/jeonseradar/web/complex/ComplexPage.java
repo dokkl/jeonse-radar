@@ -20,6 +20,7 @@ public record ComplexPage(
         LocalDate snapshotDate,
         List<AreaStat> areaStats,
         List<MaturityRow> maturities,
+        List<ReductionRow> reductions,
         boolean indexable) {
 
     public record AreaStat(
@@ -30,6 +31,19 @@ public record ComplexPage(
             String maturityYm, int areaBucket, int contractCount, int estimatedCount,
             long medianDepositThen, long currentMedianDeposit,
             long gapAmount, double gapRate, int renewalExhaustedCount, String confidence) {}
+
+    /**
+     * 갱신 계약에서 실제로 반환된 보증금 감액 (단지×평형). {@code complex_rent_stat}·
+     * {@code maturity_forecast}와 달리 추정이 아니라 이미 일어난 사실이라 confidence가
+     * 없다 — {@link com.jeonseradar.metric.entity.RenewalReductionStat}의 문서를 보라.
+     *
+     * <p>{@code reductionCount}가 3 미만이면 medianReduction은 "중위값"이 아니라 그
+     * 1~2건의 실제 반환액(또는 그 평균)이다 — 통계적 수식어를 붙일 만큼 표본이 안 된다.
+     * 어느 쪽이든 렌더링은 같은 필드를 쓰고, 템플릿이 문구만 바꾼다.
+     */
+    public record ReductionRow(
+            int areaBucket, int reductionCount, long medianReduction,
+            LocalDate latestReductionDate) {}
 
     /**
      * `/단지/{id}-{slug}`.

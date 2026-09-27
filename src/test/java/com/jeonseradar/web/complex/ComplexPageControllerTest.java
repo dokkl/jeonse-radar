@@ -148,6 +148,65 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
                         org.hamcrest.Matchers.containsString("5건 (추정"))));
     }
 
+    private void reduction(int bucket, int reductionCount, long medianReduction, String latestDate) {
+        jdbc.update("""
+                INSERT INTO renewal_reduction_stat (snapshot_date, complex_id, area_bucket,
+                        renewal_count, reduction_count, median_reduction, latest_reduction_date)
+                VALUES (?, 1, ?, ?, ?, ?, ?)
+                """, SNAPSHOT, bucket, reductionCount, reductionCount, medianReduction, latestDate);
+    }
+
+    @Test
+    void 감액_이력이_3건_이상이면_중위값으로_표시한다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        reduction(84, 3, 50_000_000L, "2025-03-15");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("실제 갱신 감액 이력")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("3건")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("중위 5,000만원")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("2025-03-15")));
+    }
+
+    @Test
+    void 감액_이력이_3건_미만이면_중위값이라_부르지_않는다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        reduction(84, 2, 50_000_000L, "2025-03-15");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("2건")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("5,000만원")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("중위 5,000만원"))));
+    }
+
+    @Test
+    void 감액_이력이_없는_단지는_안내_문구를_보여준다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("실제 갱신 감액 이력")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "실제로 확인된 갱신 감액 사례가 없습니다")));
+    }
+
+    @Test
+    void 감액_건수가_하한값임을_표기한다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+        reduction(84, 3, 50_000_000L, "2025-03-15");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("감액*")));
+    }
+
     @Test
     void 계약_건수가_하한값임을_표기한다() throws Exception {
         // 스펙 §1.3 개정(2026-09-23): deal_hash가 동/호 없이 자연키로 거래를 합치므로

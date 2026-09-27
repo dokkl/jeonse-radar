@@ -46,6 +46,16 @@ class ComplexPageQueryTest extends IntegrationTestSupport {
                 """, SNAPSHOT, complexId, bucket, deposit, n, level, conf);
     }
 
+    private void reduction(long complexId, int bucket, int reductionCount, long medianReduction,
+                           LocalDate latestReductionDate) {
+        jdbc.update("""
+                INSERT INTO renewal_reduction_stat (snapshot_date, complex_id, area_bucket,
+                        renewal_count, reduction_count, median_reduction, latest_reduction_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, SNAPSHOT, complexId, bucket, reductionCount, reductionCount, medianReduction,
+                latestReductionDate);
+    }
+
     @Test
     void 단지가_없으면_비어있다() {
         assertThat(query.find(999L)).isEmpty();
@@ -136,5 +146,47 @@ class ComplexPageQueryTest extends IntegrationTestSupport {
         stat(1, 84, 900_000_000L, 30, "L1", "HIGH");
 
         assertThat(query.find(1L).orElseThrow().indexable()).isFalse();
+    }
+
+    @Test
+    void 감액_이력을_넓은_평형_순으로_준다() {
+        complex(1, "헬리오시티");
+        reduction(1, 59, 5, 30_000_000L, LocalDate.of(2024, 6, 1));
+        reduction(1, 84, 3, 50_000_000L, LocalDate.of(2025, 3, 15));
+
+        ComplexPage page = query.find(1L).orElseThrow();
+
+        assertThat(page.reductions()).extracting(ComplexPage.ReductionRow::areaBucket)
+                .containsExactly(84, 59);
+        ComplexPage.ReductionRow row84 = page.reductions().get(0);
+        assertThat(row84.reductionCount()).isEqualTo(3);
+        assertThat(row84.medianReduction()).isEqualTo(50_000_000L);
+        assertThat(row84.latestReductionDate()).isEqualTo(LocalDate.of(2025, 3, 15));
+    }
+
+    @Test
+    void 다른_날짜_스냅샷의_감액_행은_섞이지_않는다() {
+        complex(1, "헬리오시티");
+        reduction(1, 84, 3, 50_000_000L, LocalDate.of(2025, 3, 15));
+        jdbc.update("""
+                INSERT INTO renewal_reduction_stat (snapshot_date, complex_id, area_bucket,
+                        renewal_count, reduction_count, median_reduction, latest_reduction_date)
+                VALUES ('2026-09-21', 1, 59, 1, 1, 10000000, '2024-01-01')
+                """);
+
+        ComplexPage page = query.find(1L).orElseThrow();
+
+        assertThat(page.reductions()).hasSize(1);
+        assertThat(page.reductions().get(0).areaBucket()).isEqualTo(84);
+    }
+
+    @Test
+    void 감액_이력이_없으면_빈_목록이다() {
+        complex(1, "헬리오시티");
+        stat(1, 84, 900_000_000L, 30, "L1", "HIGH");
+
+        ComplexPage page = query.find(1L).orElseThrow();
+
+        assertThat(page.reductions()).isEmpty();
     }
 }

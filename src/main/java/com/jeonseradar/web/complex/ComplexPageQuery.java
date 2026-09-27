@@ -68,6 +68,17 @@ public class ComplexPageQuery {
                         rs.getInt("renewal_exhausted_count"), rs.getString("confidence")),
                 snapshotDate, id);
 
+        List<ComplexPage.ReductionRow> reductions = jdbc.query("""
+                SELECT area_bucket, reduction_count, median_reduction, latest_reduction_date
+                FROM renewal_reduction_stat
+                WHERE snapshot_date = ? AND complex_id = ?
+                ORDER BY area_bucket DESC
+                """,
+                (rs, n) -> new ComplexPage.ReductionRow(
+                        rs.getInt("area_bucket"), rs.getInt("reduction_count"),
+                        rs.getLong("median_reduction"), rs.getObject("latest_reduction_date", LocalDate.class)),
+                snapshotDate, id);
+
         String displayName = (String) c.get("display_name");
         String regionCode = (String) c.get("region_code");
         RegionName region = RegionName.of(regionCode, catalog.nameOf(regionCode));
@@ -82,6 +93,7 @@ public class ComplexPageQuery {
                 snapshotDate,
                 stats,
                 maturities,
+                reductions,
                 indexable(displayName, stats)));
     }
 
