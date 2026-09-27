@@ -23,11 +23,12 @@ class MetricSchemaTest extends IntegrationTestSupport {
     }
 
     @Test
-    void 집계_테이블_네_개가_생성된다() {
+    void 집계_테이블_다섯_개가_생성된다() {
         assertThat(tableExists("metric_snapshot")).isTrue();
         assertThat(tableExists("complex_rent_stat")).isTrue();
         assertThat(tableExists("maturity_forecast")).isTrue();
         assertThat(tableExists("deal_flag")).isTrue();
+        assertThat(tableExists("renewal_reduction_stat")).isTrue();
     }
 
     @Test

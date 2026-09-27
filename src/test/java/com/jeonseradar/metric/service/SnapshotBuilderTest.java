@@ -36,6 +36,9 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
     @Autowired
     DealFlagBuilder dealFlagBuilder;
 
+    @Autowired
+    RenewalReductionBuilder renewalReductionBuilder;
+
     private void seedOneComplexWithLease() {
         jdbcTemplate.update(
                 "INSERT INTO complex (id, region_code, apt_seq, legal_dong, jibun, display_name, slug)"
@@ -48,6 +51,21 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
                         + " VALUES ('seed-1',1,'11680-1','11680','대치동','1','단지',85,85,3,"
                         + " ?,500000000,0,'202812',FALSE,FALSE,NOW(),NOW())",
                 LocalDate.now().minusMonths(1));
+    }
+
+    /** 갱신 감액(prev_deposit > deposit) 한 건. renewal_reduction_stat 전용 시나리오용. */
+    private void seedRenewalReduction(long complexId, LocalDate dealDate) {
+        jdbcTemplate.update(
+                "INSERT INTO complex (id, region_code, apt_seq, legal_dong, jibun, display_name, slug)"
+                        + " VALUES (?, '11680', ?, '대치동', '1', '단지', ?)",
+                complexId, "11680-" + complexId, "slug-renewal-" + complexId);
+        jdbcTemplate.update(
+                "INSERT INTO rent_deal (deal_hash, complex_id, apt_seq, region_code, legal_dong, jibun,"
+                        + " apt_name, area, area_bucket, floor, deal_date, deposit, monthly_rent,"
+                        + " prev_deposit, term_estimated, renewal_right_used, created_at, updated_at)"
+                        + " VALUES (?, ?, ?, '11680', '대치동', '1', '단지', 85, 85, 3, ?,"
+                        + " 400000000, 0, 500000000, FALSE, FALSE, NOW(), NOW())",
+                "renewal-" + complexId, complexId, "11680-" + complexId, dealDate);
     }
 
     @Test
@@ -103,6 +121,16 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
         assertThat(s.getRentStatRows()).isEqualTo(1);
         assertThat(s.getMaturityRows()).isEqualTo(1);
         assertThat(s.getDealFlagRows()).isZero();
+        assertThat(s.getRenewalReductionRows()).isZero();
+    }
+
+    @Test
+    void 갱신_감액_행수도_스냅샷에_기록된다() {
+        seedRenewalReduction(900, LocalDate.now().minusMonths(1));
+
+        MetricSnapshot s = builder.build(LocalDate.now());
+
+        assertThat(s.getRenewalReductionRows()).isEqualTo(1);
     }
 
     @Test
@@ -116,6 +144,15 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
                 Integer.class, LocalDate.now());
 
         assertThat(n).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_날_다시_빌드해도_갱신_감액_행이_중복되지_않는다() {
+        seedRenewalReduction(901, LocalDate.now().minusMonths(1));
+        builder.build(LocalDate.now());
+        builder.build(LocalDate.now());
+
+        assertThat(countRenewalReduction(LocalDate.now())).isEqualTo(1);
     }
 
     @Test
@@ -150,7 +187,7 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
 
         SnapshotBuilder failingBuilder = new SnapshotBuilder(
                 failingRentStatBuilder, maturityForecastBuilder, dealFlagBuilder,
-                snapshotRepository, jdbcTemplate);
+                renewalReductionBuilder, snapshotRepository, jdbcTemplate);
 
         assertThatThrownBy(() -> failingBuilder.build(LocalDate.now()))
                 .isInstanceOf(RuntimeException.class);
@@ -191,7 +228,7 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
 
         SnapshotBuilder rebuildingBuilder = new SnapshotBuilder(
                 observingRentStatBuilder, maturityForecastBuilder, dealFlagBuilder,
-                snapshotRepository, jdbcTemplate);
+                renewalReductionBuilder, snapshotRepository, jdbcTemplate);
 
         rebuildingBuilder.build(today);
 
@@ -237,6 +274,25 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
         assertThat(countMaturity(day3)).isEqualTo(1);
     }
 
+    @Test
+    void 세_번째_스냅샷이_완료되면_갱신_감액_집계도_최신_두_개만_남는다() {
+        // 위 테스트(시세·만기)와 같은 보존 규칙이 renewal_reduction_stat에도 적용되는지
+        // 별도로 고정한다 — clearExisting과 retainRecentSnapshots가 지우는 네 테이블의
+        // 목록이 서로 다르면 이 테이블만 무한히 쌓이거나, 반대로 재빌드 때마다 중복된다.
+        LocalDate day1 = LocalDate.now().minusDays(2);
+        LocalDate day2 = LocalDate.now().minusDays(1);
+        LocalDate day3 = LocalDate.now();
+
+        seedRenewalReduction(903, LocalDate.now().minusMonths(1));
+        builder.build(day1);
+        builder.build(day2);
+        builder.build(day3);
+
+        assertThat(countRenewalReduction(day1)).isZero();
+        assertThat(countRenewalReduction(day2)).isEqualTo(1);
+        assertThat(countRenewalReduction(day3)).isEqualTo(1);
+    }
+
     private Integer countRentStat(LocalDate snapshotDate) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM complex_rent_stat WHERE snapshot_date = ?",
@@ -246,6 +302,12 @@ class SnapshotBuilderTest extends IntegrationTestSupport {
     private Integer countMaturity(LocalDate snapshotDate) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM maturity_forecast WHERE snapshot_date = ?",
+                Integer.class, snapshotDate);
+    }
+
+    private Integer countRenewalReduction(LocalDate snapshotDate) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM renewal_reduction_stat WHERE snapshot_date = ?",
                 Integer.class, snapshotDate);
     }
 }

@@ -19,6 +19,10 @@ import java.util.List;
  * 실행 순서는 고정이다: 시세 -> 만기 -> 플래그.
  * 만기 예측이 현재 시세를 조인하므로 뒤집을 수 없다.
  *
+ * 갱신 감액(renewalReductionBuilder)은 다른 셋 중 무엇에도 의존하지 않는다 —
+ * rent_deal.prev_deposit만 직접 읽으므로, 이 셋 뒤 아무 자리에 둬도 결과가 같다.
+ * 시세 -> 만기 -> 플래그 다음에 둔 것은 그 셋의 고정 순서를 건드리지 않기 위해서다.
+ *
  * 빌드가 실패하면 스냅샷을 FAILED로 표시하고 예외를 다시 던진다.
  * 조회 계층은 COMPLETE만 보므로 직전 스냅샷이 계속 서비스된다 (스펙 §1.7).
  */
@@ -31,17 +35,20 @@ public class SnapshotBuilder {
     private final RentStatBuilder rentStatBuilder;
     private final MaturityForecastBuilder maturityForecastBuilder;
     private final DealFlagBuilder dealFlagBuilder;
+    private final RenewalReductionBuilder renewalReductionBuilder;
     private final MetricSnapshotRepository snapshotRepository;
     private final JdbcTemplate jdbcTemplate;
 
     public SnapshotBuilder(RentStatBuilder rentStatBuilder,
                            MaturityForecastBuilder maturityForecastBuilder,
                            DealFlagBuilder dealFlagBuilder,
+                           RenewalReductionBuilder renewalReductionBuilder,
                            MetricSnapshotRepository snapshotRepository,
                            JdbcTemplate jdbcTemplate) {
         this.rentStatBuilder = rentStatBuilder;
         this.maturityForecastBuilder = maturityForecastBuilder;
         this.dealFlagBuilder = dealFlagBuilder;
+        this.renewalReductionBuilder = renewalReductionBuilder;
         this.snapshotRepository = snapshotRepository;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -80,10 +87,11 @@ public class SnapshotBuilder {
             int maturityRows = maturityForecastBuilder.build(
                     snapshotDate, YearMonth.from(asOf).format(YM));
             int dealFlagRows = dealFlagBuilder.build(snapshotDate, asOf);
+            int renewalReductionRows = renewalReductionBuilder.build(snapshotDate);
 
-            snapshot.complete(rentStatRows, maturityRows, dealFlagRows);
-            log.info("집계 스냅샷 완료 {}: 시세 {}행, 만기 {}행, 플래그 {}행",
-                    snapshotDate, rentStatRows, maturityRows, dealFlagRows);
+            snapshot.complete(rentStatRows, maturityRows, dealFlagRows, renewalReductionRows);
+            log.info("집계 스냅샷 완료 {}: 시세 {}행, 만기 {}행, 플래그 {}행, 갱신감액 {}행",
+                    snapshotDate, rentStatRows, maturityRows, dealFlagRows, renewalReductionRows);
         } catch (RuntimeException e) {
             try {
                 snapshot.fail(e.toString());
@@ -107,18 +115,24 @@ public class SnapshotBuilder {
         jdbcTemplate.update("DELETE FROM maturity_forecast WHERE snapshot_date = ?", snapshotDate);
         jdbcTemplate.update("DELETE FROM complex_rent_stat WHERE snapshot_date = ?", snapshotDate);
         jdbcTemplate.update("DELETE FROM deal_flag WHERE snapshot_date = ?", snapshotDate);
+        jdbcTemplate.update(
+                "DELETE FROM renewal_reduction_stat WHERE snapshot_date = ?", snapshotDate);
     }
 
     /**
      * 오래된 스냅샷의 집계 행을 지운다. status 컬럼은 metric_snapshot 하나에만 생애주기를
-     * 줬을 뿐, 3개 집계 테이블(complex_rent_stat·maturity_forecast·deal_flag)은 지운 적이
-     * 없어 매 야간 빌드마다 전체 행(약 72만 행/일, 스펙 §4.7)이 그대로 쌓였다.
+     * 줬을 뿐, 집계 테이블(complex_rent_stat·maturity_forecast·deal_flag·renewal_reduction_stat)은
+     * 지운 적이 없어 매 야간 빌드마다 전체 행(약 72만 행/일, 스펙 §4.7)이 그대로 쌓였다.
      *
      * <p><b>최신 COMPLETE와 그 바로 이전 COMPLETE, 두 스냅샷의 집계 행만 남긴다.</b> 하나
      * 더(바로 이전 것) 남기는 이유: 방금 완료된 빌드에 조회 계층이 아직 드러내지 않은 결함이
      * 있을 때, metric_snapshot.status를 손으로 COMPLETE가 아닌 값으로 되돌리면(스펙 §1.7)
      * 직전 스냅샷이 다시 서비스돼야 하는데, 그 롤백이 뜻을 가지려면 직전 스냅샷의 집계 행이
      * 실제로 살아있어야 한다. 하나만 남기면(최신뿐) 롤백할 곳이 없다.
+     *
+     * <p>renewal_reduction_stat도 같은 보존 기간(최신 두 COMPLETE)을 따른다 —
+     * {@link #clearExisting}이 지우는 네 테이블과 여기서 지우는 네 테이블은 항상 같은
+     * 집합이어야 한다.
      *
      * <p><b>metric_snapshot 행 자체는 지우지 않는다.</b> 그건 감사 로그이고 스냅샷 하나당
      * 한 행뿐이라(하루 최대 1행) 보존 부담이 없다 — 지워야 할 것은 그 옆에 매달린
@@ -155,9 +169,11 @@ public class SnapshotBuilder {
                     "DELETE FROM complex_rent_stat WHERE snapshot_date < ?", keepFrom);
             int dealFlagDeleted = jdbcTemplate.update(
                     "DELETE FROM deal_flag WHERE snapshot_date < ?", keepFrom);
+            int renewalReductionDeleted = jdbcTemplate.update(
+                    "DELETE FROM renewal_reduction_stat WHERE snapshot_date < ?", keepFrom);
 
-            log.info("스냅샷 보존 정리: {} 이전 집계 행 삭제 (만기 {}행, 시세 {}행, 플래그 {}행)",
-                    keepFrom, maturityDeleted, rentStatDeleted, dealFlagDeleted);
+            log.info("스냅샷 보존 정리: {} 이전 집계 행 삭제 (만기 {}행, 시세 {}행, 플래그 {}행, 갱신감액 {}행)",
+                    keepFrom, maturityDeleted, rentStatDeleted, dealFlagDeleted, renewalReductionDeleted);
         } catch (RuntimeException e) {
             log.error("스냅샷 보존 정리 실패 — metric_snapshot 행은 지워지지 않으므로"
                     + " 다음 빌드가 다시 시도한다.", e);

@@ -33,6 +33,7 @@ public class MetricSnapshot {
     private Integer rentStatRows;
     private Integer maturityRows;
     private Integer dealFlagRows;
+    private Integer renewalReductionRows;
 
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
@@ -67,11 +68,22 @@ public class MetricSnapshot {
         this.failureReason = null;
     }
 
+    /**
+     * @deprecated renewal_reduction_stat 도입 전 호출부와의 하위 호환용으로만 남긴다.
+     * 새 호출부는 {@link #complete(int, int, int, int)}를 쓴다.
+     */
+    @Deprecated
     public void complete(int rentStatRows, int maturityRows, int dealFlagRows) {
+        complete(rentStatRows, maturityRows, dealFlagRows, 0);
+    }
+
+    public void complete(int rentStatRows, int maturityRows, int dealFlagRows,
+                          int renewalReductionRows) {
         this.status = SnapshotStatus.COMPLETE;
         this.rentStatRows = rentStatRows;
         this.maturityRows = maturityRows;
         this.dealFlagRows = dealFlagRows;
+        this.renewalReductionRows = renewalReductionRows;
         this.completedAt = LocalDateTime.now();
     }
 
@@ -88,6 +100,7 @@ public class MetricSnapshot {
     public Integer getRentStatRows() { return rentStatRows; }
     public Integer getMaturityRows() { return maturityRows; }
     public Integer getDealFlagRows() { return dealFlagRows; }
+    public Integer getRenewalReductionRows() { return renewalReductionRows; }
     public LocalDateTime getStartedAt() { return startedAt; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public String getFailureReason() { return failureReason; }

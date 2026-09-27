@@ -59,11 +59,16 @@ public abstract class IntegrationTestSupport {
      * (maturity_forecast, complex_rent_stat, complex, metric_snapshot, rent_deal,
      * trade_deal, deal_flag) + 이제 DB를 공유하게 된 IngestLogRepositoryTest를 위한
      * ingest_log. 즉 중앙 정리가 기존 정리보다 좁아지지 않는다.
+     *
+     * <p>renewal_reduction_stat도 여기 포함된다 — 빠뜨리면 이 테이블만 클래스 간에
+     * 행이 새어나가 다른 테스트가 무관한 이유로 흔들릴 수 있다(SnapshotBuilder가 지우는
+     * 4개 집계 테이블과 항상 같은 집합이어야 한다).
      */
     private static final List<String> 삭제_순서 = List.of(
             "deal_flag",
             "maturity_forecast",
             "complex_rent_stat",
+            "renewal_reduction_stat",
             "metric_snapshot",
             "rent_deal",
             "trade_deal",
