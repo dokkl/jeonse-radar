@@ -24,16 +24,25 @@
   </p>
   <table th:unless="${page.areaStats().isEmpty()}">
     <thead>
-    <tr><th>평형(㎡)</th><th>전세 중위값</th><th>표본</th><th>산출</th><th>신뢰도</th></tr>
+    <tr><th>평형(㎡)</th><th>전세 중위값</th><th>표본·산출</th><th>전세가율</th></tr>
     </thead>
     <tbody>
     <tr th:each="s : ${page.areaStats()}">
       <td th:text="${s.areaBucket()}">84</td>
-      <td th:text="${#numbers.formatInteger(s.medianDeposit() / 10000, 0, 'COMMA')} + '만원'">0</td>
-      <td th:text="${s.sampleCount()} + '건'">0</td>
-      <td th:text="${s.sourceLevel()}">L1</td>
-      <td><span class="conf" th:classappend="'conf-' + ${s.confidence()}"
-                th:text="${s.confidence()}">HIGH</span></td>
+      <td>
+        <span th:text="${#numbers.formatInteger(s.medianDeposit() / 10000, 0, 'COMMA')} + '만원'">0</span>
+        <span class="conf" th:classappend="'conf-' + ${s.confidence()}"
+              th:text="${s.confidence()}">HIGH</span>
+      </td>
+      <td th:text="${s.sampleCount()} + '건 · ' + ${s.sourceLevel()}">0건 · L1</td>
+      <td th:if="${s.jeonseRatio() != null}"
+          th:title="${s.medianSalePrice() != null ? ('매매 중위값 ' + #numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA') + '만원') : null}">
+        <span th:text="${#numbers.formatDecimal(s.jeonseRatio() * 100, 1, 1)} + '%'">73.2%</span>
+        <span class="conf" th:classappend="'conf-' + ${s.ratioConfidence()}"
+              th:text="${s.ratioConfidence()}">MEDIUM</span>
+      </td>
+      <td th:unless="${s.jeonseRatio() != null}" class="muted"
+          th:title="${s.medianSalePrice() != null ? ('매매 중위값 ' + #numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA') + '만원') : null}">-</td>
     </tr>
     </tbody>
   </table>
@@ -41,6 +50,14 @@
     산출 기준 — L1: 이 단지 같은 평형의 최근 6개월 실거래.
     L2: 이 단지 다른 평형의 ㎡당 단가로 환산. L3: 같은 법정동 같은 평형.
     표본이 적으면 신뢰도를 낮춰 표시합니다.
+  </p>
+  <p class="muted">
+    전세가율은 전세 중위값을 매매 중위값으로 나눈 값입니다. 100%에 가까울수록 지금 이
+    집을 팔아도 세입자의 보증금을 다 돌려주지 못한다는 뜻입니다. 전세가율이 비어 있는
+    평형은 이 단지 자신의 전세 시세를 구하지 못해(산출 L3) 같은 법정동의 다른 단지 값을
+    빌려 썼기 때문입니다 — 그 값으로 이 단지의 매매가와 비율을 내면 서로 다른 두 단지를
+    비교하는 셈이라 계산하지 않았습니다. 전세가율의 신뢰도는 전세 표본과 매매 표본 중 더
+    얇은 쪽을 따르므로 전세 중위값 옆의 신뢰도와 다를 수 있습니다.
   </p>
 
   <h2>전세 만기 일정과 역전세 갭</h2>

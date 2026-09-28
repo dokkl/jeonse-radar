@@ -48,6 +48,24 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
                 """, SNAPSHOT, confidence);
     }
 
+    private void complexOnly(String name) {
+        jdbc.update("""
+                INSERT INTO complex (id, apt_seq, region_code, legal_dong, jibun,
+                                     display_name, slug, build_year)
+                VALUES (1, '11710-1', '11710', '잠실동', '40', ?, 'helio-11710-1', 2018)
+                """, name);
+    }
+
+    private void statWithRatio(int bucket, long deposit, int n, String level, String conf,
+                               Long salePrice, Double ratio, String ratioConf) {
+        jdbc.update("""
+                INSERT INTO complex_rent_stat (snapshot_date, complex_id, area_bucket,
+                        median_deposit, sample_count, source_level, confidence,
+                        median_sale_price, jeonse_ratio, ratio_confidence)
+                VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, SNAPSHOT, bucket, deposit, n, level, conf, salePrice, ratio, ratioConf);
+    }
+
     @Test
     void 발행된_스냅샷이_없으면_503을_준다() throws Exception {
         mvc.perform(get("/단지/1-helio-11710-1"))
@@ -108,6 +126,50 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
         mvc.perform(get("/단지/1-helio-11710-1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("noindex")));
+    }
+
+    @Test
+    void 전세가율이_있으면_비율과_ratio_confidence를_표시한다() throws Exception {
+        publishSnapshot();
+        complexOnly("헬리오시티");
+        statWithRatio(84, 950_000_000L, 30, "L1", "HIGH",
+                1_300_000_000L, 0.732, "MEDIUM");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("73.2%")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "conf-MEDIUM\">MEDIUM</span>")));
+    }
+
+    @Test
+    void L3_행은_매매_중위값이_있어도_전세가율을_보여주지_않는다() throws Exception {
+        publishSnapshot();
+        complexOnly("헬리오시티");
+        statWithRatio(59, 700_000_000L, 2, "L3", "LOW",
+                1_000_000_000L, null, null);
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "매매 중위값 100,000만원\">-</td>")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("%</span>"))));
+    }
+
+    @Test
+    void 전세가율_신뢰도가_전세_신뢰도보다_낮으면_각각_다른_값을_표시한다() throws Exception {
+        publishSnapshot();
+        complexOnly("헬리오시티");
+        statWithRatio(84, 950_000_000L, 30, "L1", "HIGH",
+                1_300_000_000L, 0.732, "MEDIUM");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "conf-HIGH\">HIGH</span>")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                        "conf-MEDIUM\">MEDIUM</span>")));
     }
 
     private void maturity(int contracts, int estimated, long depositThen, long currentDeposit, long gap) {

@@ -46,6 +46,16 @@ class ComplexPageQueryTest extends IntegrationTestSupport {
                 """, SNAPSHOT, complexId, bucket, deposit, n, level, conf);
     }
 
+    private void statWithRatio(long complexId, int bucket, long deposit, int n, String level, String conf,
+                               Long salePrice, Double ratio, String ratioConf) {
+        jdbc.update("""
+                INSERT INTO complex_rent_stat (snapshot_date, complex_id, area_bucket,
+                        median_deposit, sample_count, source_level, confidence,
+                        median_sale_price, jeonse_ratio, ratio_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, SNAPSHOT, complexId, bucket, deposit, n, level, conf, salePrice, ratio, ratioConf);
+    }
+
     private void reduction(long complexId, int bucket, int reductionCount, long medianReduction,
                            LocalDate latestReductionDate) {
         jdbc.update("""
@@ -75,6 +85,45 @@ class ComplexPageQueryTest extends IntegrationTestSupport {
         assertThat(page.areaStats()).extracting(ComplexPage.AreaStat::areaBucket)
                 .containsExactly(84, 59);
         assertThat(page.areaStats().get(0).medianDeposit()).isEqualTo(950_000_000L);
+    }
+
+    @Test
+    void 전세가율이_있으면_ratio_confidence를_따로_담는다() {
+        complex(1, "헬리오시티");
+        statWithRatio(1, 84, 950_000_000L, 30, "L1", "HIGH",
+                1_300_000_000L, 0.732, "MEDIUM");
+
+        ComplexPage.AreaStat s = query.find(1L).orElseThrow().areaStats().get(0);
+
+        assertThat(s.medianSalePrice()).isEqualTo(1_300_000_000L);
+        assertThat(s.jeonseRatio()).isEqualTo(0.732);
+        assertThat(s.ratioConfidence()).isEqualTo("MEDIUM");
+    }
+
+    @Test
+    void L3_행은_매매_중위값이_있어도_전세가율이_없다() {
+        complex(1, "헬리오시티");
+        statWithRatio(1, 59, 700_000_000L, 2, "L3", "LOW",
+                1_000_000_000L, null, null);
+
+        ComplexPage.AreaStat s = query.find(1L).orElseThrow().areaStats().get(0);
+
+        assertThat(s.medianSalePrice()).isEqualTo(1_000_000_000L);
+        assertThat(s.jeonseRatio()).isNull();
+        assertThat(s.ratioConfidence()).isNull();
+    }
+
+    @Test
+    void 전세가율_신뢰도가_전세_신뢰도보다_낮아도_둘_다_보존된다() {
+        complex(1, "헬리오시티");
+        statWithRatio(1, 84, 950_000_000L, 30, "L1", "HIGH",
+                1_300_000_000L, 0.732, "MEDIUM");
+
+        ComplexPage.AreaStat s = query.find(1L).orElseThrow().areaStats().get(0);
+
+        assertThat(s.confidence()).isEqualTo("HIGH");
+        assertThat(s.ratioConfidence()).isEqualTo("MEDIUM");
+        assertThat(s.confidence()).isNotEqualTo(s.ratioConfidence());
     }
 
     @Test

@@ -23,9 +23,21 @@ public record ComplexPage(
         List<ReductionRow> reductions,
         boolean indexable) {
 
+    /**
+     * {@code jeonseRatio}·{@code ratioConfidence}는 L3(법정동 폴백) 행에서 항상 null이다 —
+     * 그 행의 전세가는 다른 단지 것을 빌려온 값이라, 이 단지의 medianSalePrice와 나누면
+     * 서로 다른 두 단지를 비교하는 셈이 된다({@code ComplexRentStat} 문서 참고). 반면
+     * {@code medianSalePrice}는 이 단지 자신의 매매이므로 L3 행에서도 값이 있을 수 있다 —
+     * null이 아니라고 비율이 존재한다고 가정하면 안 된다.
+     *
+     * <p>{@code ratioConfidence}는 {@code confidence}(전세가 산출 신뢰도)와 다른 값일 수
+     * 있다 — 매매 표본이 전세 표본보다 얇으면 그쪽 등급을 따르기 때문이다. 화면은 항상
+     * 전세 중위값 옆에는 confidence를, 전세가율 옆에는 ratioConfidence를 보여준다.
+     */
     public record AreaStat(
             int areaBucket, long medianDeposit, int sampleCount,
-            String sourceLevel, String confidence) {}
+            String sourceLevel, String confidence,
+            Long medianSalePrice, Double jeonseRatio, String ratioConfidence) {}
 
     public record MaturityRow(
             String maturityYm, int areaBucket, int contractCount, int estimatedCount,

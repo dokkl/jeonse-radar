@@ -41,7 +41,8 @@ public class ComplexPageQuery {
         Map<String, Object> c = head.get(0);
 
         List<ComplexPage.AreaStat> stats = jdbc.query("""
-                SELECT area_bucket, median_deposit, sample_count, source_level, confidence
+                SELECT area_bucket, median_deposit, sample_count, source_level, confidence,
+                       median_sale_price, jeonse_ratio, ratio_confidence
                 FROM complex_rent_stat
                 WHERE snapshot_date = ? AND complex_id = ?
                 ORDER BY area_bucket DESC
@@ -49,7 +50,10 @@ public class ComplexPageQuery {
                 (rs, n) -> new ComplexPage.AreaStat(
                         rs.getInt("area_bucket"), rs.getLong("median_deposit"),
                         rs.getInt("sample_count"), rs.getString("source_level"),
-                        rs.getString("confidence")),
+                        rs.getString("confidence"),
+                        rs.getObject("median_sale_price", Long.class),
+                        rs.getObject("jeonse_ratio", Double.class),
+                        rs.getString("ratio_confidence")),
                 snapshotDate, id);
 
         List<ComplexPage.MaturityRow> maturities = jdbc.query("""
