@@ -53,6 +53,25 @@ class RentStatBuilderTest extends IntegrationTestSupport {
                 complexId, areaBucket);
     }
 
+    /** 순수 매매(정상, 미해제) 한 건. dealAmount는 원 단위. */
+    private void sale(long complexId, String regionCode, String legalDong,
+                      int areaBucket, long dealAmount, LocalDate dealDate) {
+        sale(complexId, regionCode, legalDong, areaBucket, dealAmount, dealDate, null);
+    }
+
+    /** cancelYn을 직접 지정하는 매매 한 건 ("O"면 해제). */
+    private void sale(long complexId, String regionCode, String legalDong,
+                      int areaBucket, long dealAmount, LocalDate dealDate, String cancelYn) {
+        jdbcTemplate.update(
+                "INSERT INTO trade_deal (deal_hash, complex_id, apt_seq, region_code, legal_dong,"
+                        + " jibun, apt_name, area, area_bucket, floor, deal_date, deal_amount,"
+                        + " deal_type, cancel_yn, created_at, updated_at)"
+                        + " VALUES (?,?,?,?,?, '1','단지',?,?,3,?,?,'중개거래',?,NOW(),NOW())",
+                java.util.UUID.randomUUID().toString().replace("-", ""),
+                complexId, regionCode + "-" + complexId, regionCode, legalDong,
+                java.math.BigDecimal.valueOf(areaBucket), areaBucket, dealDate, dealAmount, cancelYn);
+    }
+
     /** 월세가 있는 계약(반전세) 한 건. 순수 전세 필터 검증용. */
     private void mixedRent(String dealHash, long complexId, String regionCode, String legalDong,
                            int areaBucket, long deposit, long monthlyRent, LocalDate dealDate) {
@@ -526,5 +545,115 @@ class RentStatBuilderTest extends IntegrationTestSupport {
         // (안 빠졌다면 15건이 섞여 중위값이 9억 쪽으로 끌려갔을 것이다).
         assertThat(((Number) stat.get("sample_count")).intValue()).isEqualTo(3);
         assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(520_000_000L);
+    }
+
+    // ---- 전세가율(jeonse_ratio): median_sale_price ÷ median_deposit의 분모가 되는 매매
+    //      쪽 집계. 전세 쪽과 정확히 같은 6개월 창, 같은 (complex_id, area_bucket) 그리고
+    //      cancel_yn 제외만 적용한다(F-31 오염 필터는 매매 쪽에 없다). ----
+
+    @Test
+    void 단지_평형에_전세와_매매가_모두_있으면_매매중위값과_전세가율을_함께_채운다() {
+        complex(100, "11680", "잠실동");
+        rent(100, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        rent(100, "11680", "잠실동", 85, 600_000_000L, LocalDate.of(2026, 7, 1));
+        rent(100, "11680", "잠실동", 85, 700_000_000L, LocalDate.of(2026, 6, 1));
+        sale(100, "11680", "잠실동", 85, 700_000_000L, LocalDate.of(2026, 8, 1));
+        sale(100, "11680", "잠실동", 85, 900_000_000L, LocalDate.of(2026, 7, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(100, 85);
+        // 전세 중위값 6억(첫 테스트와 같은 패턴), 매매 중위값은 (7억+9억)/2 = 8억
+        assertThat(((Number) stat.get("median_deposit")).longValue()).isEqualTo(600_000_000L);
+        assertThat(((Number) stat.get("median_sale_price")).longValue()).isEqualTo(800_000_000L);
+        // 전세가율 = 6억 / 8억 = 0.75
+        assertThat(((Number) stat.get("jeonse_ratio")).doubleValue()).isEqualTo(0.75, org.assertj.core.data.Offset.offset(0.0001));
+    }
+
+    @Test
+    void 매매_표본이_짝수면_가운데_두_값의_평균이_매매중위값이다() {
+        complex(101, "11680", "잠실동");
+        rent(101, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        // 서로 다른 두 금액 — 한쪽 행만 고르는 구현이면 4억 또는 6억이 나와 실패한다.
+        sale(101, "11680", "잠실동", 85, 400_000_000L, LocalDate.of(2026, 8, 1));
+        sale(101, "11680", "잠실동", 85, 600_000_000L, LocalDate.of(2026, 7, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        assertThat(((Number) statOf(101, 85).get("median_sale_price")).longValue())
+                .isEqualTo(500_000_000L);
+    }
+
+    @Test
+    void L3_전세행은_전세가율이_비어있다() {
+        // L2까지_없으면_같은_법정동_같은_평형을_빌려_쓴다와 같은 형태로 단지102를 L3로 만들고,
+        // 단지102 자신의 매매도 함께 넣는다 — median_sale_price는 채워지되 jeonse_ratio는
+        // 비어 있어야 한다(L3의 median_deposit이 단지103에서 빌려온 값이라 서로 다른
+        // 단지를 비교하는 셈이 되기 때문).
+        complex(102, "11680", "삼성동");
+        complex(103, "11680", "삼성동");
+        rent(102, "11680", "삼성동", 85, 900_000_000L, LocalDate.of(2025, 1, 1)); // window 밖
+        rent(103, "11680", "삼성동", 85, 550_000_000L, LocalDate.of(2026, 8, 1)); // 이웃 단지
+        sale(102, "11680", "삼성동", 85, 700_000_000L, LocalDate.of(2026, 8, 1)); // 단지102 자신의 매매
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(102, 85);
+        assertThat(stat.get("source_level")).isEqualTo(SourceLevel.L3.name());
+        // median_sale_price는 이 단지 자신의 매매이므로 채워진다.
+        assertThat(((Number) stat.get("median_sale_price")).longValue()).isEqualTo(700_000_000L);
+        // 하지만 전세가율과 그 신뢰도는 L3에서 만들지 않는다.
+        assertThat(stat.get("jeonse_ratio")).isNull();
+        assertThat(stat.get("ratio_confidence")).isNull();
+    }
+
+    @Test
+    void 해제된_매매는_매매중위값에서_제외된다() {
+        complex(104, "11680", "잠실동");
+        rent(104, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        sale(104, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1)); // 정상
+        sale(104, "11680", "잠실동", 85, 999_000_000L, LocalDate.of(2026, 7, 1), "O"); // 해제
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(104, 85);
+        assertThat(((Number) stat.get("median_sale_price")).longValue()).isEqualTo(500_000_000L);
+    }
+
+    @Test
+    void 육개월_밖의_매매는_매매중위값에서_제외된다() {
+        complex(105, "11680", "잠실동");
+        rent(105, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        sale(105, "11680", "잠실동", 85, 500_000_000L, LocalDate.of(2026, 8, 1)); // window 안
+        sale(105, "11680", "잠실동", 85, 999_000_000L, LocalDate.of(2025, 1, 1)); // window 밖
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(105, 85);
+        assertThat(((Number) stat.get("median_sale_price")).longValue()).isEqualTo(500_000_000L);
+    }
+
+    @Test
+    void 전세가_HIGH여도_매매표본이_적으면_전세가율_신뢰도는_낮은_쪽을_따른다() {
+        complex(106, "11680", "역삼동");
+        // 표본_10건_이상의_L1은_HIGH다와 같은 패턴 — F-31과 무관하도록 절반씩 나눈다.
+        for (int i = 0; i < 6; i++) {
+            rent(106, "11680", "역삼동", 85, 500_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        for (int i = 0; i < 6; i++) {
+            rent(106, "11680", "역삼동", 85, 510_000_000L, LocalDate.of(2026, 8, 1));
+        }
+        // 매매는 1건뿐 — Confidence.of(1, ...)는 LOW다.
+        sale(106, "11680", "역삼동", 85, 800_000_000L, LocalDate.of(2026, 8, 1));
+
+        builder.build(SNAPSHOT, AS_OF);
+
+        Map<String, Object> stat = statOf(106, 85);
+        // 전세 쪽 confidence는 그대로 HIGH — 색인 판정에 쓰는 컬럼을 덮어쓰지 않는다.
+        assertThat(stat.get("confidence")).isEqualTo(Confidence.HIGH.name());
+        // 전세가율 신뢰도는 두 쪽 중 낮은 쪽 — 매매 표본 1건이 LOW이므로 LOW다.
+        assertThat(stat.get("ratio_confidence")).isEqualTo(Confidence.LOW.name());
+        // 비율 자체는 계산된다(L3가 아니므로) — null이 아님을 확인한다.
+        assertThat(stat.get("jeonse_ratio")).isNotNull();
     }
 }

@@ -58,6 +58,38 @@ public class RentStatBuilder {
               WHERE NOT (grp_cnt >= 10 AND dep_cnt * 10 >= grp_cnt * 9)
             )""";
 
+    /**
+     * 전세가율(jeonse_ratio)의 분모가 될 매매 중위값. 같은 (complex_id, area_bucket) 그리고
+     * 전세 쪽과 정확히 같은 6개월 창으로 trade_deal을 본다 — 창이 다르면 나온 비율이 두
+     * 시점의 시세를 나누는 것이라 의미가 없어진다.
+     *
+     * 해제(cancel_yn = 'O')된 매매만 뺀다. DealFlagBuilder.insertUnregistered와 글자 그대로
+     * 같은 null-safe 형태(cancel_yn IS NULL OR cancel_yn <> 'O')를 쓴다 — cancel_yn이 NULL인
+     * 정상 거래를 실수로 걸러내지 않기 위해서다.
+     *
+     * F-31의 CLEAN_DEALS_CTE(대량 행정 갱신 제외)는 여기 적용하지 않는다. 대량 임대사업자의
+     * 일괄 갱신은 전세 쪽 현상이고, 매매에는 그에 대응하는 오염 패턴이 실측되지 않았다(단지×
+     * 평형 그룹 중 10건 이상 표본에서 90%+ 동일가인 경우가 9건뿐 — 전세가율 §요구사항의
+     * 실측치).
+     */
+    private static final String SALE_MEDIAN_CTE = """
+            sale_ranked AS (
+              SELECT complex_id, area_bucket, deal_amount,
+                     ROW_NUMBER() OVER (PARTITION BY complex_id, area_bucket ORDER BY deal_amount) rn,
+                     COUNT(*)     OVER (PARTITION BY complex_id, area_bucket)                       cnt
+              FROM trade_deal
+              WHERE deal_date >= ? AND deal_date <= ?
+                AND (cancel_yn IS NULL OR cancel_yn <> 'O')
+            ),
+            sale_median AS (
+              SELECT complex_id, area_bucket,
+                     CAST(AVG(deal_amount) AS SIGNED) AS median_sale_price,
+                     MAX(cnt)                          AS cnt
+              FROM sale_ranked
+              WHERE %s
+              GROUP BY complex_id, area_bucket
+            )""";
+
     private final JdbcTemplate jdbcTemplate;
 
     public RentStatBuilder(JdbcTemplate jdbcTemplate) {
@@ -67,7 +99,9 @@ public class RentStatBuilder {
     /**
      * @param snapshotDate 집계 결과에 찍을 스냅샷 날짜
      * @param asOf         "최근 6개월"의 기준점. 테스트가 시간을 고정할 수 있도록 인자로 받는다.
-     * @return 삽입된 행 수
+     * @return 삽입된 행 수 (매매 중위값·전세가율 채움은 기존 행을 UPDATE할 뿐 행을 늘리지
+     *         않으므로 이 수치에 포함되지 않는다 — MetricSnapshot.rentStatRows는 여전히
+     *         complex_rent_stat의 실제 행 수와 같다)
      */
     @Transactional
     public int build(LocalDate snapshotDate, LocalDate asOf) {
@@ -75,7 +109,48 @@ public class RentStatBuilder {
         int inserted = insertL1(snapshotDate, windowStart, asOf);
         inserted += insertL2(snapshotDate, windowStart, asOf);
         inserted += insertL3(snapshotDate, windowStart, asOf);
+        applySaleRatio(snapshotDate, windowStart, asOf);
         return inserted;
+    }
+
+    /**
+     * L1·L2·L3가 모두 채운 뒤, 같은 (complex_id, area_bucket) 매매 중위값을 끼얹고
+     * 전세가율을 계산한다. source_level이 이미 확정된 뒤에만 "L3면 비율을 내지 않는다"를
+     * 판단할 수 있으므로 세 INSERT 다음에 별도 단계로 둔다.
+     *
+     * <p><b>L3는 비율을 null로 둔다.</b> L3의 median_deposit은 이 단지가 아니라 같은
+     * 법정동의 다른 단지에서 빌려온 값이다. 그걸 이 단지 자신의 median_sale_price로 나누면
+     * 서로 다른 두 단지를 비교하는 셈이 되고, 실측상 100%+ 전세가율 구간의 51.9%가 L3에서
+     * 나온다(L3는 전체 행의 12.1%뿐인데도) — L3를 포함하면 100%+ 비중이 3.5%에서 6.7%로
+     * 부풀려진다. median_sale_price 자체는 이 단지의 진짜 매매이므로 계속 채운다(쓸모가
+     * 있다 — "이 단지가 팔린다면 얼마"는 여전히 유효한 정보다), 다만 그걸로 만든 비율은
+     * 신뢰할 수 없으니 만들지 않는다.
+     *
+     * <p><b>confidence 컬럼은 건드리지 않는다.</b> {@code ComplexPageQuery.indexable()},
+     * {@code SitemapController}, {@code CoverageReporter}가 전세 시세만 보고 이미 색인
+     * 여부를 정하고 있어, 매매 표본이 얇다는 이유로 그 값을 낮추면 이미 색인된 단지 페이지가
+     * 빠져나간다. 전세가율의 신뢰도는 {@code ratio_confidence}라는 새 컬럼에 따로 둔다 —
+     * MaturityForecastBuilder가 then/current 양쪽 신뢰도 중 낮은 쪽을 취하는 것과 같은
+     * 규칙(전세 쪽 confidence와 매매 표본 수 등급 중 낮은 쪽)이지만, 그 결과가 confidence를
+     * 덮어쓰지 않는다.
+     */
+    private int applySaleRatio(LocalDate snapshotDate, LocalDate windowStart, LocalDate asOf) {
+        String sql = ("""
+                WITH %s
+                UPDATE complex_rent_stat s
+                JOIN sale_median m ON m.complex_id = s.complex_id AND m.area_bucket = s.area_bucket
+                SET s.median_sale_price = m.median_sale_price,
+                    s.jeonse_ratio = CASE WHEN s.source_level <> 'L3'
+                                          THEN s.median_deposit / m.median_sale_price END,
+                    s.ratio_confidence = CASE
+                        WHEN s.source_level = 'L3'                    THEN NULL
+                        WHEN s.confidence = 'LOW'    OR m.cnt < 3     THEN 'LOW'
+                        WHEN s.confidence = 'MEDIUM' OR m.cnt < 10    THEN 'MEDIUM'
+                        ELSE 'HIGH'
+                    END
+                WHERE s.snapshot_date = ?
+                """).formatted(SALE_MEDIAN_CTE.formatted(MedianSql.MIDDLE_ROWS));
+        return jdbcTemplate.update(sql, windowStart, asOf, snapshotDate);
     }
 
     /**
