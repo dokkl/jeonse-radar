@@ -30,3 +30,4 @@ ul.sido li { padding: 4px 0; break-inside: avoid; }
   ul.sigungu, ul.sido { columns: 2; }
   table { font-size: 14px; }
 }
+.sale { display: block; color: #666; font-size: 12px; margin-top: 2px; white-space: nowrap; }

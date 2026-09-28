@@ -151,8 +151,7 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
 
         mvc.perform(get("/단지/1-helio-11710-1"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "매매 중위값 100,000만원\">-</td>")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("매매 100,000만원")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("%</span>"))));
     }
@@ -295,6 +294,36 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
         mvc.perform(get("/단지/1-helio-11710-1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("class=\"home\"")));
+    }
+
+
+    @Test
+    void 매매_중위값을_전세가율_칸에_함께_보여준다() throws Exception {
+        publishSnapshot();
+        complexOnly("헬리오시티");
+        statWithRatio(84, 950_000_000L, 30, "L1", "HIGH",
+                1_300_000_000L, 0.732, "MEDIUM");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("73.2%")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("매매 130,000만원")));
+    }
+
+    /**
+     * 툴팁은 터치 기기와 스크린리더에서 사실상 존재하지 않는다. 현장에서 폰으로 보는
+     * 서비스이므로 전세가율의 분모를 눈에 보이게 둔다.
+     */
+    @Test
+    void 매매_중위값이_없으면_매매_줄을_넣지_않는다() throws Exception {
+        publishSnapshot();
+        complexOnly("헬리오시티");
+        statWithRatio(59, 700_000_000L, 2, "L3", "LOW", null, null, null);
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("class=\"sale\""))));
     }
 
 }

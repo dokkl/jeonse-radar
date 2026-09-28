@@ -36,14 +36,22 @@
               th:text="${s.confidence()}">HIGH</span>
       </td>
       <td th:text="${s.sampleCount()} + '건 · ' + ${s.sourceLevel()}">0건 · L1</td>
-      <td th:if="${s.jeonseRatio() != null}"
-          th:title="${s.medianSalePrice() != null ? ('매매 중위값 ' + #numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA') + '만원') : null}">
+      <!-- 전세가율의 분모인 매매 중위값을 눈에 보이게 둔다. title 툴팁은 터치 기기와
+           스크린리더에서 사실상 존재하지 않는데, 이 서비스는 현장에서 폰으로 본다.
+           L3 행은 전세 쪽을 다른 단지에서 빌려와 비율을 내지 않지만, median_sale_price
+           자체는 이 단지 자신의 실거래이므로 그대로 보여준다. -->
+      <td th:if="${s.jeonseRatio() != null}">
         <span th:text="${#numbers.formatDecimal(s.jeonseRatio() * 100, 1, 1)} + '%'">73.2%</span>
         <span class="conf" th:classappend="'conf-' + ${s.ratioConfidence()}"
               th:text="${s.ratioConfidence()}">MEDIUM</span>
+        <span class="sale" th:if="${s.medianSalePrice() != null}"
+              th:text="'매매 ' + ${#numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA')} + '만원'">매매 0만원</span>
       </td>
-      <td th:unless="${s.jeonseRatio() != null}" class="muted"
-          th:title="${s.medianSalePrice() != null ? ('매매 중위값 ' + #numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA') + '만원') : null}">-</td>
+      <td th:unless="${s.jeonseRatio() != null}" class="muted">
+        <span>-</span>
+        <span class="sale" th:if="${s.medianSalePrice() != null}"
+              th:text="'매매 ' + ${#numbers.formatInteger(s.medianSalePrice() / 10000, 0, 'COMMA')} + '만원'">매매 0만원</span>
+      </td>
     </tr>
     </tbody>
   </table>
