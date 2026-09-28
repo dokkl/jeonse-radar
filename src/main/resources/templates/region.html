@@ -10,7 +10,7 @@
 </head>
 <body>
 <div class="wrap">
-  <p class="muted"><a th:href="'/역전세/' + ${page.sidoSegment()}" th:text="${page.sido()}">시도</a></p>
+  <p class="home"><a href="/">전세 만기·역전세 레이더</a> · <a th:href="'/역전세/' + ${page.sidoSegment()}" th:text="${page.sido()}">시도</a></p>
   <h1 th:text="${page.regionName()} + ' 전세 만기·역전세 현황'">지역</h1>
   <p class="muted"><span th:text="${page.snapshotDate()}">기준일</span> 기준</p>
 

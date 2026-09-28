@@ -173,4 +173,28 @@ class RegionPageControllerTest extends IntegrationTestSupport {
                 .andExpect(view().name("region"))
                 .andExpect(content().string(containsString("세종단지")));
     }
+
+    /**
+     * 루트가 시도를 링크하고 시도가 루트를 되링크해야 그래프가 양방향으로 닫힌다.
+     * 규칙이 세 템플릿에 흩어져 살므로 각각에서 확인한다.
+     */
+    @Test
+    void 시도_인덱스에_루트로_돌아가는_링크가_있다() throws Exception {
+        complexIn("11680", 1, "가단지");
+
+        mvc.perform(get("/역전세/서울특별시"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("class=\"home\"")));
+    }
+
+    @Test
+    void 시군구_페이지에_루트로_돌아가는_링크가_있다() throws Exception {
+        complexIn("11680", 1, "가단지");
+        forecast(1, 100_000_000L, 5, "HIGH");
+
+        mvc.perform(get("/역전세/서울특별시/강남구"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("class=\"home\"")));
+    }
+
 }

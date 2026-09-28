@@ -131,6 +131,9 @@ public class SitemapController {
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+        // 루트는 데이터 조건과 무관하게 항상 넣는다 — 사이트의 정규 진입점이고,
+        // 색인 대상 단지가 0건인 날에도 루트 자체는 유효한 페이지다.
+        appendUrl(xml, "/", snapshotDate);
         regionPaths.forEach(p -> appendUrl(xml, p, snapshotDate));
         complexPaths.forEach(p -> appendUrl(xml, p, snapshotDate));
         xml.append("</urlset>\n");

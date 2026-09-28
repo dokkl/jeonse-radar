@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>전세 만기·역전세 레이더</title>
+  <meta name="description"
+        content="국토교통부 실거래가로 전세 만기 시기와 역전세 갭을 단지별로 정리합니다. 전국 시군구·단지 검색.">
+  <meta name="robots" th:if="${robots != null}" th:attr="content=${robots}">
+  <link rel="canonical" th:href="${baseUrl} + '/'">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>전세 만기·역전세 레이더</h1>
+
+  <p class="lead">
+    국토교통부 실거래가만으로 전세 계약이 언제 만기가 돌아오는지, 그때 지금 시세로
+    보증금을 다 돌려줄 수 있는지를 단지별로 정리합니다. 표본이 적으면 신뢰도를 낮춰
+    표시하고, 숫자를 만들어 내지 않습니다.
+  </p>
+
+  <p class="meta">
+    <span th:text="${#numbers.formatInteger(page.sigunguCount(), 0, 'COMMA')} + '개 시군구'">0개 시군구</span> ·
+    <span th:text="${#numbers.formatInteger(page.complexCount(), 0, 'COMMA')} + '개 단지'">0개 단지</span> ·
+    <span th:text="${page.snapshotDate()} + ' 기준'">기준일</span>
+  </p>
+
+  <h2>지역별로 보기</h2>
+  <ul class="sido">
+    <li th:each="s : ${page.sidos()}">
+      <a th:href="@{/역전세/{sido}(sido=${s})}" th:text="${s}">시도</a>
+    </li>
+  </ul>
+</div>
+</body>
+</html>

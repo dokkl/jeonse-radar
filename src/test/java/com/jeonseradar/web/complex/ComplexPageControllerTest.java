@@ -286,4 +286,15 @@ class ComplexPageControllerTest extends IntegrationTestSupport {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("동·호수")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("8.60%")));
     }
+
+    @Test
+    void 단지_페이지에_루트로_돌아가는_링크가_있다() throws Exception {
+        publishSnapshot();
+        complexWith("헬리오시티", "HIGH");
+
+        mvc.perform(get("/단지/1-helio-11710-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("class=\"home\"")));
+    }
+
 }

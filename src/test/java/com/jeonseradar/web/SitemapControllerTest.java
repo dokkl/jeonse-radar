@@ -188,4 +188,16 @@ class SitemapControllerTest extends IntegrationTestSupport {
         snapshots.deleteAll();
         mvc.perform(get("/sitemap.xml")).andExpect(status().isServiceUnavailable());
     }
+
+    /**
+     * 루트는 링크 그래프의 뿌리이자 사이트의 정규 진입점이므로 sitemap에도 있어야 한다.
+     * 데이터가 하나도 색인 대상이 아니어도 루트 자체는 유효한 페이지다.
+     */
+    @Test
+    void 루트를_sitemap에_넣는다() throws Exception {
+        mvc.perform(get("/sitemap.xml"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<loc>http://localhost:8080/</loc>")));
+    }
+
 }

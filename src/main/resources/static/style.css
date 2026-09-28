@@ -21,7 +21,12 @@ ul.sigungu li { padding: 4px 0; break-inside: avoid; }
 a { color: #1a5fb4; }
 h1 { font-size: 24px; margin: 8px 0; }
 h2 { font-size: 18px; margin: 32px 0 8px; }
+.home { color: #666; font-size: 14px; margin: 0 0 4px; }
+.lead { max-width: 60ch; }
+.meta { color: #666; font-size: 14px; }
+ul.sido { columns: 3; list-style: none; padding: 0; }
+ul.sido li { padding: 4px 0; break-inside: avoid; }
 @media (max-width: 600px) {
-  ul.sigungu { columns: 2; }
+  ul.sigungu, ul.sido { columns: 2; }
   table { font-size: 14px; }
 }
