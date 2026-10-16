@@ -1,0 +1,2 @@
+# cp terraform.tfvars.example terraform.tfvars
+ssh_allowed_cidrs = ["203.0.113.10/32"] # 내 공인 IP: curl -s https://checkip.amazonaws.com

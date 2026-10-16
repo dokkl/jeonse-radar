@@ -1,0 +1,72 @@
+# Lightsail 인스턴스(/opt/jeonse-radar)에서 deploy.sh가 docker-compose.yml 이름으로 올려 실행한다.
+# 같은 디렉터리의 .env(deploy/.env.prod 사본)에서 비밀값을 읽는다.
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: jeonse
+      MYSQL_USER: jeonse
+      MYSQL_PASSWORD: ${DB_PASSWORD:?}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      TZ: Asia/Seoul
+    command:
+      # 로컬 docker-compose.yml과 같은 이유로 같은 설정 (charset, KST, 대량 적재)
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+09:00
+      - --innodb-buffer-pool-size=1G
+      - --max-allowed-packet=64M
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 외부로 포트를 열지 않는다. 앱만 내부 네트워크로 붙는다.
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -ujeonse -p$$MYSQL_PASSWORD -e 'SELECT 1' jeonse || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  app:
+    build: .
+    image: jeonse-radar:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      MOLIT_SERVICE_KEY: ${MOLIT_SERVICE_KEY:-}
+      SITE_BASE_URL: https://${DOMAIN:?}
+      # Caddy 뒤에 있으므로 X-Forwarded-* 를 신뢰해 https 기준으로 URL을 만든다
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      JAVA_OPTS: -Xms512m -Xmx1200m -XX:+UseG1GC
+      TZ: Asia/Seoul
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:

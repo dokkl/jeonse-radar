@@ -244,3 +244,33 @@ src/main/java/com/jeonseradar/
 - **픽스처는 실제 API 응답이다.** 테스트가 실패하면 구현이 틀린 것이지 픽스처를 고칠 일이 아니다.
 - **공공데이터만 쓴다.** 상업적 이용이 가능한 것은 공공데이터뿐이다. 크롤링 데이터는 넣지 않는다.
 - 커밋 메시지는 한국어 한 줄 요약 + Conventional Commits 접두사.
+
+---
+
+## 운영 배포 (AWS Lightsail + seeplus.net)
+
+인스턴스 한 대(서울, 4GB)에서 MySQL·앱·Caddy를 Docker Compose로 돌린다. HTTPS는 Caddy가 자동 발급한다.
+AWS 계정 `378040395734`(프로파일 `starter`)에 고정되어 있어, 다른 계정 자격증명으로는 plan/apply가 거부된다.
+
+| 경로 | 역할 |
+|------|------|
+| `infra/terraform/` | 인스턴스, 고정 IP, 방화벽(22/80/443), 일일 자동 스냅샷, Route 53 A 레코드(apex, www) |
+| `deploy/docker-compose.prod.yml`, `Caddyfile`, `Dockerfile` | 서버에서 실행되는 스택 |
+| `deploy/deploy.sh` | jar 빌드 → 업로드 → `docker compose up` (코드 바꿀 때마다) |
+| `deploy/migrate-db.sh` | 로컬 DB를 서버로 덤프 이전 (최초 1회) |
+
+```bash
+# 1) 인프라
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars   # ssh_allowed_cidrs에 내 IP
+terraform init && terraform apply
+
+# 2) 비밀값
+cp deploy/.env.prod.example deploy/.env.prod   # DB 비밀번호, 서비스키
+
+# 3) 배포 + 데이터 이전 (로컬 docker compose의 MySQL이 떠 있어야 함)
+deploy/deploy.sh
+deploy/migrate-db.sh
+```
+
+SSH 키는 `~/.ssh/jeonse-radar`. 서버 접속은 `terraform -chdir=infra/terraform output -raw ssh`.
