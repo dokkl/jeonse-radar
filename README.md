@@ -247,14 +247,14 @@ src/main/java/com/jeonseradar/
 
 ---
 
-## 운영 배포 (AWS Lightsail + seeplus.net)
+## 운영 배포 (AWS Lightsail + apt.seeplus.net)
 
 인스턴스 한 대(서울, 4GB)에서 MySQL·앱·Caddy를 Docker Compose로 돌린다. HTTPS는 Caddy가 자동 발급한다.
 AWS 계정 `378040395734`(프로파일 `starter`)에 고정되어 있어, 다른 계정 자격증명으로는 plan/apply가 거부된다.
 
 | 경로 | 역할 |
 |------|------|
-| `infra/terraform/` | 인스턴스, 고정 IP, 방화벽(22/80/443), 일일 자동 스냅샷, Route 53 A 레코드(apex, www) |
+| `infra/terraform/` | 인스턴스, 고정 IP, 방화벽(22/80/443), 일일 자동 스냅샷, Route 53 A 레코드(apt.seeplus.net) |
 | `deploy/docker-compose.prod.yml`, `Caddyfile`, `Dockerfile` | 서버에서 실행되는 스택 |
 | `deploy/deploy.sh` | jar 빌드 → 업로드 → `docker compose up` (코드 바꿀 때마다) |
 | `deploy/migrate-db.sh` | 로컬 DB를 서버로 덤프 이전 (최초 1회) |
@@ -274,3 +274,30 @@ deploy/migrate-db.sh
 ```
 
 SSH 키는 `~/.ssh/jeonse-radar`. 서버 접속은 `terraform -chdir=infra/terraform output -raw ssh`.
+
+서비스 주소는 **https://apt.seeplus.net**. Route 53 존은 `seeplus.net`(`zone_name`)이고, 서비스 호스트는
+그 안의 A 레코드(`domain`, 기본 `apt.seeplus.net`)다. 호스트를 바꾸려면 `variables.tf`의 `domain`과
+`deploy/.env.prod`의 `DOMAIN`을 같이 바꾸고 `terraform apply` → `deploy/deploy.sh` 순으로 돌린다.
+
+### 데이터 갱신
+
+서버 앱이 떠 있으면 스케줄러가 알아서 돈다.
+
+| 시각 (KST) | 작업 |
+|------|------|
+| 02:00 | `IngestScheduler` — 당월 포함 최근 3개월 전월세·매매 재수집 (SUCCESS여도 다시 긁는다) |
+| 04:00 | `SnapshotScheduler` — 시세·만기·플래그 집계 |
+
+새벽을 기다리지 않고 바로 갱신하려면 서버에서 일회성 컨테이너로 돌린다. 서비스 중인 `app` 컨테이너는 그대로 둔다.
+
+```bash
+ssh -i ~/.ssh/jeonse-radar ubuntu@$(terraform -chdir=infra/terraform output -raw static_ip)
+cd /opt/jeonse-radar
+docker compose run --rm -T app --backfill        # ingest_log에서 SUCCESS가 아닌 대상만 수집
+docker compose run --rm -T app --build-metrics   # 집계
+```
+
+`--backfill`은 이미 SUCCESS인 (지역, 월)을 건너뛴다. 덤프 이전 뒤처럼 부분 수집된 월을 다시 받아야 하면
+먼저 그 월을 PENDING으로 돌린다 (예: `update ingest_log set status='PENDING' where deal_ym='202609';`).
+API 쿼터(일 10,000건)는 같은 서비스키를 쓰는 로컬과 나눠 쓴다.
+

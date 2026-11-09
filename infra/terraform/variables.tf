@@ -49,10 +49,16 @@ variable "ssh_allowed_cidrs" {
   type        = list(string)
 }
 
-variable "domain" {
+variable "zone_name" {
   description = "Route 53 호스티드 존이 이미 있는 도메인"
   type        = string
   default     = "seeplus.net"
+}
+
+variable "domain" {
+  description = "서비스 호스트명. zone_name 안의 레코드로 만든다"
+  type        = string
+  default     = "apt.seeplus.net"
 }
 
 variable "auto_snapshot_time" {
